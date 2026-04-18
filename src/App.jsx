@@ -1,53 +1,82 @@
 import { useState, useEffect } from "react";
 
 // ══════════════════════════════════════════════════════════════
-// インメモリDB（デモ用 / 本番はFirebase版src/App.jsxを使用）
+// Firebase設定
 // ══════════════════════════════════════════════════════════════
-const _mem = { shops:{}, settings:{}, reports:{}, batches:{}, services:{}, listeners:{} };
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, get, onValue, off, update } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDcePGEoUQgjV2St4o2s85wmvB_YKYEcQw",
+  authDomain: "casdori-4cdd6.firebaseapp.com",
+  databaseURL: "https://casdori-4cdd6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "casdori-4cdd6",
+  storageBucket: "casdori-4cdd6.firebasestorage.app",
+  messagingSenderId: "268483174849",
+  appId: "1:268483174849:web:393c680b811ea1a84fcf40",
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+
+// ══════════════════════════════════════════════════════════════
+// DB層 - Firebase Realtime Database（リアルタイム同期）
+// ══════════════════════════════════════════════════════════════
 const DB = {
-  loadShopSettings: async (id) => _mem.settings[id] || null,
-  saveShopSettings: async (id, s) => { _mem.settings[id] = JSON.parse(JSON.stringify(s)); },
-  saveDailyReport:  async (id, r) => { if(!_mem.reports[id]) _mem.reports[id]={}; _mem.reports[id][r.date]=r; },
-  getReportIndex:   async (id) => Object.keys(_mem.reports[id]||{}).sort().reverse(),
-  loadDailyReport:  async (id, d) => (_mem.reports[id]||{})[d]||null,
-  loadShops:        async () => Object.values(_mem.shops),
-  saveShop:         async (s) => { _mem.shops[s.shopId]=s; },
+  loadShopSettings: async (id) => {
+    try { const s = await get(ref(db,`shops/${id}/settings`)); return s.exists()?s.val():null; } catch { return null; }
+  },
+  saveShopSettings: async (id, s) => {
+    try { await set(ref(db,`shops/${id}/settings`), s); } catch(e){console.error(e);}
+  },
+  saveDailyReport: async (id, r) => {
+    try { await set(ref(db,`shops/${id}/reports/${r.date}`), r); } catch(e){console.error(e);}
+  },
+  getReportIndex: async (id) => {
+    try { const s=await get(ref(db,`shops/${id}/reports`)); return s.exists()?Object.keys(s.val()).sort().reverse():[]; } catch { return []; }
+  },
+  loadDailyReport: async (id, d) => {
+    try { const s=await get(ref(db,`shops/${id}/reports/${d}`)); return s.exists()?s.val():null; } catch { return null; }
+  },
+  loadShops: async () => {
+    try { const s=await get(ref(db,`shopRegistry`)); return s.exists()?Object.values(s.val()):[]; } catch { return []; }
+  },
+  saveShop: async (s) => {
+    try { await set(ref(db,`shopRegistry/${s.shopId}`), s); } catch(e){console.error(e);}
+  },
   addBatch: async (shopId, batch) => {
-    if(!_mem.batches[shopId]) _mem.batches[shopId]={};
-    _mem.batches[shopId][batch.batchId]=batch;
-    _notify(shopId);
+    try { await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), batch); } catch(e){console.error(e);}
   },
   updateBatchStatus: async (shopId, batchId, status) => {
-    if(_mem.batches[shopId]?.[batchId]) _mem.batches[shopId][batchId].status=status;
-    _notify(shopId);
+    try { await update(ref(db,`shops/${shopId}/batches/${batchId}`),{status}); } catch(e){console.error(e);}
   },
   addService: async (shopId, svc) => {
-    if(!_mem.services[shopId]) _mem.services[shopId]={};
-    _mem.services[shopId][svc.id]=svc;
-    _notify(shopId);
+    try { await set(ref(db,`shops/${shopId}/services/${svc.id}`), svc); } catch(e){console.error(e);}
   },
   updateServiceStatus: async (shopId, svcId, status) => {
-    if(_mem.services[shopId]?.[svcId]) _mem.services[shopId][svcId].status=status;
-    _notify(shopId);
+    try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
   },
   resetTable: async (shopId, tableId) => {
-    Object.entries(_mem.batches[shopId]||{}).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) delete _mem.batches[shopId][k]; });
-    Object.entries(_mem.services[shopId]||{}).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) delete _mem.services[shopId][k]; });
-    _notify(shopId);
+    try {
+      const [bs,ss] = await Promise.all([get(ref(db,`shops/${shopId}/batches`)),get(ref(db,`shops/${shopId}/services`))]);
+      const u={};
+      if(bs.exists()) Object.entries(bs.val()).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) u[`shops/${shopId}/batches/${k}`]=null; });
+      if(ss.exists()) Object.entries(ss.val()).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) u[`shops/${shopId}/services/${k}`]=null; });
+      if(Object.keys(u).length>0) await update(ref(db),u);
+    } catch(e){console.error(e);}
   },
+  // リアルタイム購読（これが管理画面のリアルタイム更新の核心）
   subscribe: (shopId, cb) => {
-    if(!_mem.listeners[shopId]) _mem.listeners[shopId]=[];
-    _mem.listeners[shopId].push(cb);
-    cb({ batches:Object.values(_mem.batches[shopId]||{}), services:Object.values(_mem.services[shopId]||{}) });
-    return () => { _mem.listeners[shopId]=(_mem.listeners[shopId]||[]).filter(f=>f!==cb); };
+    const bRef = ref(db,`shops/${shopId}/batches`);
+    const sRef = ref(db,`shops/${shopId}/services`);
+    let batches=[], services=[];
+    const notify = () => cb({batches:[...batches],services:[...services]});
+    const bh = snap => { batches=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
+    const sh = snap => { services=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
+    onValue(bRef,bh);
+    onValue(sRef,sh);
+    return () => { off(bRef,'value',bh); off(sRef,'value',sh); };
   },
 };
-function _notify(shopId) {
-  const cbs = _mem.listeners[shopId]||[];
-  const batches  = Object.values(_mem.batches[shopId]||{}).sort((a,b)=>b.time>a.time?1:-1);
-  const services = Object.values(_mem.services[shopId]||{}).sort((a,b)=>b.time>a.time?1:-1);
-  cbs.forEach(cb=>cb({batches,services}));
-}
 
 function uid() { return Math.random().toString(36).slice(2,9); }
 function nowShort() { return new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}); }
@@ -133,37 +162,9 @@ function getUrlParams() {
   } catch { return {}; }
 }
 
-const DEMO_ID = "DEMO001";
-
 export default function App() {
-  const { shop, role } = getUrlParams();
-
-  // URLパラメーターで起動画面を決定
-  const initScreen = () => {
-    if (shop && role === "cast")  return "cast";
-    if (shop && role === "admin") return "admin";
-    return "landing";
-  };
-
-  const [screen, setScreen]     = useState(initScreen);
-  const [shopId, setShopId]     = useState(shop || DEMO_ID);
-  const [settings, setSettings] = useState(() => defaultSettings(shop || DEMO_ID, "CASDORIデモ店"));
-  const [loaded, setLoaded]     = useState(!shop); // URLパラメーターがある場合は設定を読み込む
-
-  // URLパラメーターで起動した場合、Firebaseから設定を読み込む
-  useEffect(() => {
-    if (!shop) return;
-    DB.loadShopSettings(shop).then(s => {
-      if (s) setSettings(s);
-      setLoaded(true);
-    });
-  }, []);
-
-  if (!loaded) return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
-      <div style={{ color:C.gold, fontSize:18, fontWeight:700 }}>読み込み中...</div>
-    </div>
-  );
+  const [session, setSession]   = useState(null); // { shopId, settings }
+  const [screen, setScreen]     = useState("landing");
 
   const bg = (
     <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:0, overflow:"hidden" }}>
@@ -172,14 +173,129 @@ export default function App() {
     </div>
   );
 
+  // 未ログイン → ログイン画面
+  if (!session) return (
+    <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Noto Sans JP',sans-serif", color:C.text }}>
+      {bg}
+      <LoginScreen onLogin={sess => { setSession(sess); setScreen("landing"); }} />
+    </div>
+  );
+
+  const { shopId, settings } = session;
+
   return (
     <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Noto Sans JP',sans-serif", color:C.text }}>
       {bg}
       {screen==="landing"  && <Landing  onSelect={setScreen} shopName={settings.shopName} adminPin={settings.adminPin} />}
       {screen==="cast"     && <CastTerminal  onExit={()=>setScreen("landing")} settings={settings} shopId={shopId} />}
       {screen==="admin"    && <AdminPanel    onExit={()=>setScreen("landing")} onSettings={()=>setScreen("settings")} onReport={()=>setScreen("report")} settings={settings} shopId={shopId} />}
-      {screen==="settings" && <SettingsPanel settings={settings} shopId={shopId} onSave={s=>setSettings(s)} onExit={()=>setScreen("landing")} />}
+      {screen==="settings" && <SettingsPanel settings={settings} shopId={shopId} onSave={s=>setSession({...session,settings:s})} onExit={()=>setScreen("landing")} />}
       {screen==="report"   && <DailyReportPanel shopId={shopId} onExit={()=>setScreen("admin")} />}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ログイン画面
+// ══════════════════════════════════════════════════════════════
+function LoginScreen({ onLogin }) {
+  const [shopCode, setShopCode] = useState("");
+  const [pin, setPin]           = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName]   = useState("");
+  const [newPin, setNewPin]     = useState("");
+
+  async function handleLogin() {
+    if (!shopCode.trim()) { setError("店舗コードを入力してください"); return; }
+    if (!pin.trim()) { setError("PINを入力してください"); return; }
+    setLoading(true); setError("");
+    try {
+      const settings = await DB.loadShopSettings(shopCode.trim().toUpperCase());
+      if (!settings) { setError("店舗コードが見つかりません"); setLoading(false); return; }
+      if (pin !== settings.pin && pin !== settings.adminPin) { setError("PINが違います"); setLoading(false); return; }
+      onLogin({ shopId: shopCode.trim().toUpperCase(), settings });
+    } catch(e) {
+      setError("接続エラーが発生しました"); setLoading(false);
+    }
+  }
+
+  async function handleCreate() {
+    if (!newName.trim()) { setError("店舗名を入力してください"); return; }
+    if (newPin.length < 4) { setError("PINは4桁以上で設定してください"); return; }
+    setLoading(true); setError("");
+    try {
+      const shopId = newName.trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase().slice(0,8) + Math.random().toString(36).slice(2,5).toUpperCase();
+      const settings = defaultSettings(shopId, newName.trim());
+      settings.pin = newPin;
+      settings.adminPin = newPin;
+      await DB.saveShop({ shopId, shopName: newName.trim() });
+      await DB.saveShopSettings(shopId, settings);
+      setError(`✅ 店舗コード: ${shopId}  メモしてください！`);
+      setShopCode(shopId);
+      setCreating(false);
+      setLoading(false);
+    } catch(e) {
+      setError("登録に失敗しました"); setLoading(false);
+    }
+  }
+
+  const inpSt = { width:"100%", padding:"14px 16px", borderRadius:14, fontSize:15, boxSizing:"border-box", border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" };
+
+  if (creating) return (
+    <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:32, fontWeight:900, color:C.gold, fontFamily:"Georgia,serif", letterSpacing:"0.1em" }}>CASDORI</div>
+          <div style={{ fontSize:14, color:C.textDim, marginTop:8 }}>新規店舗登録</div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div>
+            <div style={{ fontSize:12, color:C.textDim, marginBottom:6 }}>店舗名</div>
+            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="例: キャバクラ ミライ" style={inpSt} />
+          </div>
+          <div>
+            <div style={{ fontSize:12, color:C.textDim, marginBottom:6 }}>PIN（4桁以上の数字）</div>
+            <input value={newPin} onChange={e=>setNewPin(e.target.value)} type="password" placeholder="0000" style={inpSt} />
+          </div>
+          {error && <div style={{ fontSize:13, color:error.startsWith("✅")?C.green:C.red, padding:"10px 14px", background:"rgba(0,0,0,0.3)", borderRadius:12 }}>{error}</div>}
+          <button onClick={handleCreate} disabled={loading} style={{ padding:"14px", borderRadius:14, border:"none", background:C.gold, color:"#0a0618", fontWeight:800, fontSize:15, cursor:"pointer" }}>
+            {loading?"登録中...":"登録する"}
+          </button>
+          <button onClick={()=>{setCreating(false);setError("");}} style={{ padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>← 戻る</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ padding:"16px 28px", background:"rgba(232,184,75,0.08)", borderRadius:16, display:"inline-block", boxShadow:"0 0 40px rgba(232,184,75,0.15)" }}>
+            <div style={{ fontSize:36, fontWeight:900, color:C.gold, fontFamily:"Georgia,serif", letterSpacing:"0.1em" }}>CASDORI</div>
+            <div style={{ fontSize:11, color:"#b8842a", letterSpacing:"0.2em", marginTop:4 }}>キャスト ドリンク管理</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div>
+            <div style={{ fontSize:12, color:C.textDim, marginBottom:6 }}>店舗コード</div>
+            <input value={shopCode} onChange={e=>setShopCode(e.target.value.toUpperCase())} placeholder="例: MIRAI123" style={inpSt} />
+          </div>
+          <div>
+            <div style={{ fontSize:12, color:C.textDim, marginBottom:6 }}>PIN</div>
+            <input value={pin} onChange={e=>setPin(e.target.value)} type="password" placeholder="••••" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={inpSt} />
+          </div>
+          {error && <div style={{ fontSize:13, color:error.startsWith("✅")?C.green:C.red, padding:"10px 14px", background:"rgba(0,0,0,0.3)", borderRadius:12 }}>{error}</div>}
+          <button onClick={handleLogin} disabled={loading} style={{ padding:"14px", borderRadius:14, border:"none", background:C.gold, color:"#0a0618", fontWeight:800, fontSize:15, cursor:"pointer" }}>
+            {loading?"確認中...":"ログイン"}
+          </button>
+          <button onClick={()=>{setCreating(true);setError("");}} style={{ padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>
+            初めての方 → 新規店舗登録
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
