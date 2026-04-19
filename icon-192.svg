@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d0720"/>
+      <stop offset="100%" stop-color="#1a0d38"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d87a"/>
+      <stop offset="50%" stop-color="#e8b84b"/>
+      <stop offset="100%" stop-color="#b8842a"/>
+    </linearGradient>
+    <linearGradient id="drink" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f06dab" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#9b3080" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- 背景（角丸） -->
+  <rect width="192" height="192" fill="url(#bg)" rx="42"/>
+
+  <!-- 外枠 -->
+  <rect width="188" height="188" x="2" y="2" fill="none" stroke="url(#gold)" stroke-width="2" rx="40" opacity="0.5"/>
+
+  <!-- 背景の輝き -->
+  <ellipse cx="96" cy="86" rx="65" ry="55" fill="rgba(232,184,75,0.06)"/>
+
+  <!-- カクテルグラス -->
+  <g transform="translate(96, 96)" filter="url(#glow)">
+    <!-- グラス本体（三角形） -->
+    <path d="M -44 -50 L 44 -50 L 26 10 L -26 10 Z"
+          fill="none" stroke="url(#gold)" stroke-width="3.5" stroke-linejoin="round"/>
+    <!-- 液体 -->
+    <path d="M -34 -42 L 34 -42 L 26 10 L -26 10 Z"
+          fill="url(#drink)" opacity="0.75"/>
+    <!-- 液体上面 -->
+    <line x1="-34" y1="-42" x2="34" y2="-42" stroke="#f06dab" stroke-width="2" opacity="0.9"/>
+    <!-- 泡 -->
+    <circle cx="-16" cy="-28" r="5" fill="rgba(245,216,122,0.2)" stroke="#f5d87a" stroke-width="1.2"/>
+    <circle cx="6"   cy="-36" r="3.5" fill="rgba(245,216,122,0.15)" stroke="#f5d87a" stroke-width="1"/>
+    <circle cx="24"  cy="-22" r="3" fill="rgba(245,216,122,0.15)" stroke="#f5d87a" stroke-width="0.9"/>
+    <!-- ステム -->
+    <line x1="0" y1="10" x2="0" y2="36" stroke="url(#gold)" stroke-width="3.5"/>
+    <!-- ベース -->
+    <line x1="-22" y1="36" x2="22" y2="36" stroke="url(#gold)" stroke-width="4" stroke-linecap="round"/>
+    <!-- チェリー -->
+    <circle cx="0" cy="-48" r="8" fill="#f06dab" filter="url(#glow)"/>
+    <!-- チェリーの茎 -->
+    <path d="M 0 -56 Q 10 -66 18 -62" fill="none" stroke="#3ecf8e" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- 下部テキスト -->
+  <text x="96" y="166" text-anchor="middle"
+    font-family="Georgia,'Times New Roman',serif"
+    font-size="20" font-weight="700" letter-spacing="4"
+    fill="url(#gold)" opacity="0.9">CASDORI</text>
+
+  <!-- 星（右上） -->
+  <g transform="translate(154, 34)" filter="url(#glow)">
+    <polygon points="0,-8 1.8,-2.5 7.6,-2.5 3,0.9 4.7,6.5 0,3.4 -4.7,6.5 -3,0.9 -7.6,-2.5 -1.8,-2.5"
+             fill="#f5d87a" opacity="0.8"/>
+  </g>
+  <!-- 星（左下） -->
+  <g transform="translate(40, 154)">
+    <polygon points="0,-5 1.1,-1.5 4.8,-1.5 1.9,0.6 2.9,4.1 0,2.1 -2.9,4.1 -1.9,0.6 -4.8,-1.5 -1.1,-1.5"
+             fill="#f5d87a" opacity="0.5"/>
+  </g>
+</svg>
