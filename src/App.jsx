@@ -162,9 +162,28 @@ function getUrlParams() {
   } catch { return {}; }
 }
 
+// 固定店舗ID（URLパラメーターまたはデフォルト）
+const DEFAULT_SHOP_ID = "MIRAI001";
+function getShopId() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("shop") || DEFAULT_SHOP_ID;
+  } catch { return DEFAULT_SHOP_ID; }
+}
+const SHOP_ID = getShopId();
+
 export default function App() {
-  const [session, setSession]   = useState(null); // { shopId, settings }
+  const [settings, setSettings] = useState(() => defaultSettings(SHOP_ID, "CASDORIデモ店"));
   const [screen, setScreen]     = useState("landing");
+  const [loaded, setLoaded]     = useState(false);
+
+  // 起動時にFirebaseから設定を読み込む
+  useEffect(() => {
+    DB.loadShopSettings(SHOP_ID).then(s => {
+      if (s) setSettings(s);
+      setLoaded(true);
+    });
+  }, []);
 
   const bg = (
     <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:0, overflow:"hidden" }}>
@@ -173,24 +192,20 @@ export default function App() {
     </div>
   );
 
-  // 未ログイン → ログイン画面
-  if (!session) return (
-    <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Noto Sans JP',sans-serif", color:C.text }}>
-      {bg}
-      <LoginScreen onLogin={sess => { setSession(sess); setScreen("landing"); }} />
+  if (!loaded) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ color:C.gold, fontSize:18, fontWeight:700 }}>読み込み中...</div>
     </div>
   );
-
-  const { shopId, settings } = session;
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Noto Sans JP',sans-serif", color:C.text }}>
       {bg}
       {screen==="landing"  && <Landing  onSelect={setScreen} shopName={settings.shopName} adminPin={settings.adminPin} />}
-      {screen==="cast"     && <CastTerminal  onExit={()=>setScreen("landing")} settings={settings} shopId={shopId} />}
-      {screen==="admin"    && <AdminPanel    onExit={()=>setScreen("landing")} onSettings={()=>setScreen("settings")} onReport={()=>setScreen("report")} settings={settings} shopId={shopId} />}
-      {screen==="settings" && <SettingsPanel settings={settings} shopId={shopId} onSave={s=>setSession({...session,settings:s})} onExit={()=>setScreen("landing")} />}
-      {screen==="report"   && <DailyReportPanel shopId={shopId} onExit={()=>setScreen("admin")} />}
+      {screen==="cast"     && <CastTerminal  onExit={()=>setScreen("landing")} settings={settings} shopId={SHOP_ID} />}
+      {screen==="admin"    && <AdminPanel    onExit={()=>setScreen("landing")} onSettings={()=>setScreen("settings")} onReport={()=>setScreen("report")} settings={settings} shopId={SHOP_ID} />}
+      {screen==="settings" && <SettingsPanel settings={settings} shopId={SHOP_ID} onSave={s=>setSettings(s)} onExit={()=>setScreen("landing")} />}
+      {screen==="report"   && <DailyReportPanel shopId={SHOP_ID} onExit={()=>setScreen("admin")} />}
     </div>
   );
 }
@@ -530,7 +545,7 @@ function CastTerminal({ onExit, settings, shopId }) {
         )}
         <div style={{ fontSize:12, color:C.pink, fontWeight:700, marginBottom:8 }}>💗 キャスト選択</div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
-          {casts.map(name=>{
+          {[...casts].sort((a,b)=>a.localeCompare(b,"ja")).map(name=>{
             const cnt = cart.filter(i=>i.castName===name).length;
             return (
               <button key={name} onClick={()=>goToDrink(name,false)} style={{ padding:"14px 6px", borderRadius:14, cursor:"pointer", border:`1px solid ${cnt>0?C.pink:C.border}`, background:cnt>0?C.pinkDim:C.bgCard, display:"flex", flexDirection:"column", alignItems:"center", gap:4, position:"relative" }}>
@@ -729,7 +744,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
     castMap[item.castName].drinks[dk].qty+=(item.qty||1);
     castMap[item.castName].drinks[dk].total+=rev;
   }));
-  const casts  = Object.values(castMap).sort((a,b)=>b.revenue-a.revenue);
+  const casts  = Object.values(castMap).sort((a,b)=>a.name.localeCompare(b.name,"ja"));
   const maxRev = casts.length>0?casts[0].revenue:1;
   const detail = detailCast?casts.find(c=>c.name===detailCast):null;
 
@@ -833,59 +848,23 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 <div style={{ fontSize:24, fontWeight:900, color:C.pink }}>{totalCups}杯</div>
               </div>
             </div>
-            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-              {[["cast","💗 キャスト別"],["table","🍽️ 卓別"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setStatsTab(k)} style={{ flex:1, padding:"10px", borderRadius:14, border:`1px solid ${statsTab===k?C.gold:C.border}`, background:statsTab===k?C.goldDim:"transparent", color:statsTab===k?C.gold:C.textDim, fontWeight:700, fontSize:14, cursor:"pointer" }}>{l}</button>
-              ))}
-            </div>
-            {statsTab==="cast" && (
-              <div>
-                {casts.length===0 ? <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>まだデータがありません</div> : casts.map((c,i)=>(
-                  <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
-                    <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.bgCard, border:i>2?`1px solid ${C.border}`:"none", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:i<=2?"#0a0618":C.textDim }}>{i+1}</div>
-                    <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.name}</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
-                        <div style={{ height:"100%", width:`${(c.revenue/maxRev)*100}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
-                      </div>
-                      <div style={{ fontSize:11, color:C.textDim }}>{c.cups}杯</div>
-                    </div>
-                    <div style={{ textAlign:"right", flexShrink:0 }}>
-                      <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{c.revenue.toLocaleString()}</div>
-                      <div style={{ fontSize:10, color:C.textDim }}>→ 詳細</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-            {statsTab==="table" && (
-              <div>
-                {(()=>{
-                  const tMap2={};
-                  batches.forEach(b=>{
-                    const k=String(b.tableId);
-                    if(!tMap2[k]) tMap2[k]={label:b.tableLabel,total:0,cups:0};
-                    b.items.forEach(item=>{ if(!item.noCount){tMap2[k].total+=(item.price||0)*(item.qty||1);tMap2[k].cups+=(item.qty||1);} });
-                  });
-                  const tables2=Object.values(tMap2).sort((a,b)=>b.total-a.total);
-                  const maxT=tables2.length>0?tables2[0].total:1;
-                  return tables2.length===0?<div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>まだデータがありません</div>:tables2.map((t,i)=>(
-                    <div key={i} style={{ padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}` }}>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                        <span style={{ fontSize:16, fontWeight:800, color:C.gold }}>{t.label}</span>
-                        <div style={{ textAlign:"right" }}>
-                          <div style={{ fontSize:16, fontWeight:900, color:C.gold }}>¥{t.total.toLocaleString()}</div>
-                          <div style={{ fontSize:11, color:C.textDim }}>{t.cups}杯</div>
-                        </div>
-                      </div>
-                      <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden" }}>
-                        <div style={{ height:"100%", width:`${(t.total/maxT)*100}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
-            )}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:12 }}>💗 キャスト別（タップで詳細）</div>
+            {casts.length===0 ? <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>まだデータがありません</div> : casts.map((c,i)=>(
+              <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
+                <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:C.pink }}>{i+1}</div>
+                <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.name}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
+                    <div style={{ height:"100%", width:`${(c.revenue/maxRev)*100}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
+                  </div>
+                  <div style={{ fontSize:11, color:C.textDim }}>{c.cups}杯</div>
+                </div>
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{c.revenue.toLocaleString()}</div>
+                  <div style={{ fontSize:10, color:C.textDim }}>→ 詳細</div>
+                </div>
+              </button>
+            ))}
           </div>
         )}
         {tab==="stats" && detailCast && detail && (
