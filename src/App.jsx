@@ -114,6 +114,10 @@ function defaultSettings(shopId, shopName) {
       {id:"orange",name:"オレンジジュース",price:1000,emoji:"🍊"},
       {id:"cola",name:"コーラ",price:1000,emoji:"🥤"},
       {id:"coffee",name:"コーヒー",price:1000,emoji:"☕"},
+      {id:"ryokucha",name:"緑茶",price:1000,emoji:"🍵"},
+      {id:"oolong",name:"ウーロン茶",price:1000,emoji:"🍵"},
+      {id:"sanpin",name:"さんぴん茶",price:1000,emoji:"🫖"},
+      {id:"muto",name:"無糖紅茶",price:1000,emoji:"🍵"},
       {id:"tequila",name:"テキーラ（ショット）",price:2000,emoji:"🥃",special:true},
       {id:"habu",name:"ハブ酒（ショット）",price:2000,emoji:"🐍",special:true},
       {id:"champagne",name:"シャンパングラス",price:2000,emoji:"🍾",special:true},
@@ -972,9 +976,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const maxRev = casts.length>0?casts[0].revenue:1;
   const detail = detailCast?casts.find(c=>c.name===detailCast):null;
 
-  // リアルタイム自動保存
+  // リアルタイム自動保存（削除時も即反映）
   useEffect(() => {
-    if (batches.length === 0) return;
     const today = new Date().toISOString().slice(0,10);
     const tMap = {};
     batches.forEach(b => {
@@ -990,6 +993,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
       cMap2[item.castName].cups    += (item.qty||1);
       cMap2[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
     }));
+    // batches が空でも保存して履歴を最新状態に上書きする
     DB.saveDailyReport(shopId, { date:today, tableReports:Object.values(tMap), castReports:Object.values(cMap2), totalCups });
   }, [batches]);
 
@@ -1027,24 +1031,49 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             <div style={{ fontSize:12, color:C.gold, fontWeight:700, marginBottom:8 }}>🍹 ドリンク待ち（{pending.length}件）</div>
             {pending.length===0 ? <div style={{ textAlign:"center", padding:"40px", color:C.textDim, fontSize:14 }}>待機中のオーダーはありません</div> : (
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                {pending.map(batch=>(
-                  <div key={batch.batchId} style={{ background:C.bgCard, border:`1px solid ${C.goldBorder}`, borderRadius:16, overflow:"hidden" }}>
-                    <div style={{ display:"flex", alignItems:"center", padding:"10px 14px", background:C.goldDim, gap:8 }}>
-                      <span style={{ fontWeight:800, color:C.gold }}>{batch.tableLabel}</span>
-                      <span style={{ fontSize:12, color:C.textDim }}>{batch.time}</span>
-                      <button onClick={()=>DB.updateBatchStatus(shopId,batch.batchId,"done")} style={{ marginLeft:"auto", padding:"6px 14px", borderRadius:10, border:"none", background:C.green, color:"#0a0618", fontWeight:700, cursor:"pointer", fontSize:13 }}>✓ 提供済み</button>
-                    </div>
-                    {batch.items.map((item,i)=>(
-                      <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderTop:i>0?`1px solid ${C.border}`:"none" }}>
-                        <span style={{ fontSize:16 }}>{item.emoji}</span>
-                        <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
-                        <span style={{ flex:1, fontSize:13 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
-                        <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
-                        {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
+                {(()=>{
+                  // テーブル別にまとめる・最初に来た時刻順（古い順）で並べる
+                  const tableMap = {};
+                  [...pending].sort((a,b)=>a.time>b.time?1:-1).forEach(batch=>{
+                    const key = String(batch.tableId);
+                    if(!tableMap[key]) tableMap[key] = { tableLabel:batch.tableLabel, tableId:batch.tableId, batches:[], firstTime:batch.time };
+                    tableMap[key].batches.push(batch);
+                  });
+                  // 最初の注文時刻が古い卓を上に
+                  const tables = Object.values(tableMap).sort((a,b)=>a.firstTime>b.firstTime?1:-1);
+                  return tables.map(tGroup=>(
+                    <div key={tGroup.tableId} style={{ background:C.bgCard, border:`1px solid ${C.goldBorder}`, borderRadius:16, overflow:"hidden" }}>
+                      {/* 卓ヘッダー */}
+                      <div style={{ display:"flex", alignItems:"center", padding:"10px 14px", background:C.goldDim, gap:8 }}>
+                        <span style={{ fontWeight:900, color:C.gold, fontSize:15 }}>{tGroup.tableLabel}</span>
+                        <span style={{ fontSize:11, color:C.textDim }}>{tGroup.batches.length}回の注文</span>
+                        <button onClick={async()=>{
+                          // この卓の全バッチを提供済みに
+                          await Promise.all(tGroup.batches.map(b=>DB.updateBatchStatus(shopId,b.batchId,"done")));
+                        }} style={{ marginLeft:"auto", padding:"6px 14px", borderRadius:10, border:"none", background:C.green, color:"#0a0618", fontWeight:700, cursor:"pointer", fontSize:13 }}>✓ すべて提供済み</button>
                       </div>
-                    ))}
-                  </div>
-                ))}
+                      {/* 各バッチのアイテムをまとめて表示 */}
+                      {tGroup.batches.map((batch,bi)=>(
+                        <div key={batch.batchId}>
+                          {bi>0 && (
+                            <div style={{ padding:"4px 14px", background:"rgba(255,255,255,0.03)", borderTop:`1px solid ${C.border}`, fontSize:10, color:C.textDim }}>
+                              ── {batch.time} の追加注文 ──
+                            </div>
+                          )}
+                          {batch.items.map((item,i)=>(
+                            <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderTop:`1px solid ${C.border}` }}>
+                              <span style={{ fontSize:16 }}>{item.emoji}</span>
+                              <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
+                              <span style={{ flex:1, fontSize:13 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
+                              <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
+                              {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
               </div>
             )}
             {done.length>0 && (
