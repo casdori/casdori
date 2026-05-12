@@ -64,6 +64,18 @@ const DB = {
       if(Object.keys(u).length>0) await update(ref(db),u);
     } catch(e){console.error(e);}
   },
+  // バッチ内の特定アイテムを削除
+  removeItemFromBatch: async (shopId, batchId, itemIndex, currentItems) => {
+    try {
+      const newItems = currentItems.filter((_,i) => i !== itemIndex);
+      if (newItems.length === 0) {
+        // アイテムが0になったらバッチごと削除
+        await update(ref(db), { [`shops/${shopId}/batches/${batchId}`]: null });
+      } else {
+        await set(ref(db, `shops/${shopId}/batches/${batchId}/items`), newItems);
+      }
+    } catch(e) { console.error(e); }
+  },
   // リアルタイム購読（これが管理画面のリアルタイム更新の核心）
   subscribe: (shopId, cb) => {
     const bRef = ref(db,`shops/${shopId}/batches`);
@@ -177,12 +189,14 @@ export default function App() {
   const [screen, setScreen]     = useState("landing");
   const [loaded, setLoaded]     = useState(false);
 
-  // 起動時にFirebaseから設定を読み込む
+  // 起動時＋リアルタイムでFirebaseから設定を読み込む
   useEffect(() => {
-    DB.loadShopSettings(SHOP_ID).then(s => {
-      if (s) setSettings(s);
+    const settingsRef = ref(db, `shops/${SHOP_ID}/settings`);
+    const unsubscribe = onValue(settingsRef, snap => {
+      if (snap.exists()) setSettings(snap.val());
       setLoaded(true);
     });
+    return () => off(settingsRef, 'value', unsubscribe);
   }, []);
 
   const bg = (
@@ -733,11 +747,12 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   const castMap = {};
   let totalSales=0, totalCups=0;
-  batches.forEach(b=>b.items.forEach(item=>{
+  batches.forEach(b=>b.items.forEach((item,itemIdx)=>{
     if(item.noCount||item.isGuest||!item.castName) return;
-    if(!castMap[item.castName]) castMap[item.castName]={name:item.castName,revenue:0,cups:0,drinks:{}};
+    if(!castMap[item.castName]) castMap[item.castName]={name:item.castName,revenue:0,cups:0,drinks:{},rawItems:[]};
     const rev=(item.price||0)*(item.qty||1);
     castMap[item.castName].revenue+=rev; castMap[item.castName].cups+=(item.qty||1);
+    castMap[item.castName].rawItems.push({...item, batchId:b.batchId, itemIndex:itemIdx, batchItems:b.items});
     totalSales+=rev; totalCups+=(item.qty||1);
     const dk=item.drinkName+(item.nonAlco?" ❤️":"");
     if(!castMap[item.castName].drinks[dk]) castMap[item.castName].drinks[dk]={name:dk,emoji:item.emoji||"🍹",qty:0,total:0,price:item.price||0};
@@ -877,18 +892,21 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 <div><div style={{ fontSize:11, color:C.textDim }}>杯数</div><div style={{ fontSize:26, fontWeight:900, color:C.pink }}>{detail.cups}杯</div></div>
               </div>
             </div>
-            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>🍹 ドリンク別内訳</div>
-            {Object.values(detail.drinks).sort((a,b)=>b.total-a.total).map((d,i)=>(
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>🍹 注文明細（削除できます）</div>
+            {detail.rawItems.map((item,i)=>(
               <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:8, border:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:20 }}>{d.emoji}</span>
+                <span style={{ fontSize:18 }}>{item.emoji||"🍹"}</span>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{d.name}</div>
-                  <div style={{ fontSize:12, color:C.textDim }}>¥{d.price.toLocaleString()} × {d.qty}杯</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                  <div style={{ fontSize:11, color:C.textDim }}>¥{(item.price||0).toLocaleString()} × {item.qty||1}杯</div>
                 </div>
-                <div style={{ textAlign:"right" }}>
-                  <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{d.total.toLocaleString()}</div>
-                  <div style={{ fontSize:11, color:C.textDim }}>{d.qty}杯</div>
+                <div style={{ textAlign:"right", marginRight:8 }}>
+                  <div style={{ fontSize:14, fontWeight:900, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>
                 </div>
+                <button onClick={async()=>{
+                  if(!window.confirm(`「${item.drinkName}」を削除しますか？`)) return;
+                  await DB.removeItemFromBatch(shopId, item.batchId, item.itemIndex, item.batchItems);
+                }} style={{ padding:"8px 12px", borderRadius:10, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", fontSize:12, flexShrink:0 }}>✕</button>
               </div>
             ))}
           </div>
