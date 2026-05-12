@@ -124,6 +124,131 @@ function defaultSettings(shopId, shopName) {
   };
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// 出前メニュー
+// ══════════════════════════════════════════════════════════════
+const DELIVERY_MENUS = {
+  "NOA": {
+    icon: "🍕",
+    tel: "07047644848",
+    sections: [
+      {
+        title: "PIZZA 🍕",
+        note: "25センチ ¥2,000 / 30センチ ¥2,700（ハーフ&ハーフは30センチ）",
+        items: [
+          "香草チキンのトマトソース","定番マルゲリータ","生ハムとオリーブのトマトソース",
+          "ポテトマニア","パンチェッタと木の子のトマトソース","アオサとアンチョビのクリームソース",
+          "エビとアスパラのマヨネーズソース","4種のチーズ","韓国風キムチ","魚介たっぷり漁師風","テリヤキミート"
+        ]
+      },
+      {
+        title: "PASTA 🍝",
+        note: "¥1,500 / 大盛り+¥300",
+        items: [
+          "しらすとキャベツのペペロンチーノ","ベーコンとバジルのペペロンチーノ","あさりとキムチのペペロンチーノ",
+          "小柱と長ネギの大葉ジェノベーゼ","ボンゴレビアンコ","魚介たっぷりペスカトーレ",
+          "イカのアラビアータ","ナスとツナのアラビアータ","エビのトマトクリーム",
+          "ベーコンと木の子のクリーム","ゴルゴンゾーラのクリーム","明太子のクリーム",
+          "ベーコンとほうれん草の和風","日替わりパスタ"
+        ]
+      },
+      {
+        title: "SIDE MENU",
+        items: [
+          "チキンとジャガイモのロースト ¥1,500","生ハムとソーセージの盛り合わせ ¥1,500",
+          "カニクリームコロッケ ¥1,000","やみつき手羽先 ¥700","フライドポテト ¥700",
+          "とりの唐揚げ ¥700","アスパラとベーコンのコーンバター ¥700"
+        ]
+      }
+    ],
+    note: "配達は1500円から / 最終受付4:30 / 1人営業のためお時間いただく場合があります"
+  },
+  "ヤーマン酒場": {
+    icon: "🍺",
+    tel: "69-3618",
+    sections: [
+      {
+        title: "TAKE OUTメニュー",
+        items: [
+          "ポテトフライ ¥450","シソささみフライ(5ヶ) ¥800","鶏なんこつ ¥600",
+          "からあげ(3ヶ) ¥600","エビマヨ ¥1,000","串揚げ盛 ¥1,300","おでん盛 ¥1,500",
+          "焼おにぎり2ヶ ¥300","白おにぎり2ヶ ¥250","ハンバーグ(単品) ¥800 / (丼) ¥900",
+          "しょうが焼き(単品) ¥700 / (丼) ¥800","炒飯 ¥700",
+          "汁なし担々めん ¥780","トマト煮込みロールキャベツ ¥700"
+        ]
+      }
+    ],
+    note: "ランチ11:00〜15:00 / 夜17:00〜 / 深夜1:00〜9:00 / 金久町3-10"
+  },
+  "脇田丸": {
+    icon: "🐟",
+    tel: "",
+    sections: [
+      {
+        title: "脇田丸メニュー（22:00までに注文）",
+        items: [
+          "脇田丸 船盛 ¥3,000","脇田丸 大漁盛 ¥7,000","脇田丸 豪華盛 ¥15,000"
+        ]
+      },
+      {
+        title: "奄美料理",
+        items: [
+          "奄美ティラダ ¥1,000","島豆腐の冷奴 ¥1,000","地魚サラダ ¥1,500","海鮮生春巻き ¥1,500",
+          "塩豚 ¥1,500","塩豚炙り ¥1,000","豚角煮 ¥1,000","がじゃ豆 ¥1,000",
+          "油ソーメン ¥1,500","ゴーヤチャンプル ¥1,500"
+        ]
+      },
+      {
+        title: "その他おつまみ",
+        items: [
+          "枝豆 ¥1,000","ポテトフライ ¥1,000","軟骨唐揚げ ¥1,000","若鶏の唐揚げ ¥1,000",
+          "もろきゅう ¥1,000","梅きゅう ¥1,000","エイヒレみりん干し ¥1,000","山芋トロ〜リ焼 ¥1,500"
+        ]
+      }
+    ],
+    note: "税込み価格"
+  },
+  "焼鳥壱番": {
+    icon: "🍢",
+    tel: "0997588228",
+    sections: [
+      {
+        title: "焼鳥",
+        note: "焼鳥盛り合わせ ¥1,400 / 焼鳥 ¥180 / レバー(1番人気) ¥230 / 手羽中 ¥200",
+        items: [
+          "モモ、スリ、ハツ、カウ、ネギマ、ニンニクマ","ボンジリ、豚バラ、ハツモト、セセリ"
+        ]
+      },
+      {
+        title: "巻き・他",
+        note: "¥270",
+        items: [
+          "トマト巻き","アスパラ巻き","エリンギ巻き","えのき巻き","おくら巻き","つくね","うずら"
+        ]
+      },
+      {
+        title: "野菜",
+        note: "¥160",
+        items: ["シイタケ、ブロッコリー、トマト、エリンギ、オクラ"]
+      },
+      {
+        title: "一品",
+        items: [
+          "エダマメ ¥450","キムチ ¥450","チャンジャ ¥450","玉子焼き ¥450","ランチェンミート ¥450",
+          "鳥刺し ¥700","イカ焼き ¥700"
+        ]
+      },
+      {
+        title: "ご飯もの",
+        items: [
+          "焼鳥丼 ¥800","肉うどん ¥700","そぼろ丼 ¥800","やきおに ¥350"
+        ]
+      }
+    ],
+    note: "Wi-Fi: 0997588228"
+  }
+};
 const SPLIT_TYPES = [
   {id:"mizu",name:"水割り",emoji:"💧"},{id:"soda",name:"ソーダ割り",emoji:"🫧"},
   {id:"oyu",name:"お湯割り",emoji:"♨️"},{id:"rock",name:"ロック",emoji:"🧊"},
@@ -452,6 +577,8 @@ function CastTerminal({ onExit, settings, shopId }) {
   const [notif, setNotif]           = useState(null);
   const [confirm, setConfirm]       = useState(false);
   const [guestTab, setGuestTab]     = useState("base");
+  const [deliveryModal, setDeliveryModal] = useState(false);
+  const [selDelivery, setSelDelivery]     = useState(null);
 
   const tables   = settings?.tables      || [];
   const casts    = settings?.castList    || [];
@@ -493,12 +620,16 @@ function CastTerminal({ onExit, settings, shopId }) {
   function sendSvc(svc) { DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,...svc,time:nowShort(),status:"pending"}); flash(`${svc.name} 送信`); }
   function submit() {
     DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:[...cart]});
-    flash(`${cart.length}件 送信 ✓`); setCart([]); setConfirm(false); setPhase("castSelect");
+    flash(`${cart.length}件 送信 ✓`); setCart([]); setConfirm(false);
   }
 
   if (phase==="tableSetup") return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ width:"100%", maxWidth:400 }}>
+        {/* 出前メニューボタン */}
+        <button onClick={()=>setDeliveryModal(true)} style={{ width:"100%", marginBottom:16, padding:"12px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          🛵 出前メニューを見る
+        </button>
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ fontSize:32, color:C.gold }}>♛</div>
           <div style={{ fontSize:18, fontWeight:900, color:C.gold }}>CAST TERMINAL</div>
@@ -519,6 +650,62 @@ function CastTerminal({ onExit, settings, shopId }) {
         </button>
         <button onClick={onExit} style={{ width:"100%", marginTop:10, padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>← 戻る</button>
       </div>
+      {/* 出前メニューモーダル */}
+      {deliveryModal && (
+        <div onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#0d0820", borderRadius:"24px 24px 0 0", maxHeight:"85vh", display:"flex", flexDirection:"column" }}>
+            <div style={{ padding:"20px 20px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+              {selDelivery && <button onClick={()=>setSelDelivery(null)} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>}
+              <div style={{ flex:1, fontSize:16, fontWeight:800, color:C.teal }}>
+                🛵 {selDelivery ? `${DELIVERY_MENUS[selDelivery].icon} ${selDelivery}` : "出前メニュー"}
+              </div>
+              <button onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ padding:"6px 10px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>✕</button>
+            </div>
+            <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+              {!selDelivery ? (
+                // 店舗一覧
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {Object.entries(DELIVERY_MENUS).map(([name, menu])=>(
+                    <button key={name} onClick={()=>setSelDelivery(name)} style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 20px", background:C.bgCard, border:`1px solid ${C.tealBorder}`, borderRadius:16, cursor:"pointer" }}>
+                      <span style={{ fontSize:28 }}>{menu.icon}</span>
+                      <div style={{ textAlign:"left" }}>
+                        <div style={{ fontSize:16, fontWeight:700, color:C.teal }}>{name}</div>
+                        {menu.tel && <div style={{ fontSize:12, color:C.textDim, marginTop:2 }}>📞 {menu.tel}</div>}
+                      </div>
+                      <span style={{ marginLeft:"auto", color:C.teal, fontSize:18 }}>→</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                // メニュー詳細
+                <div>
+                  {DELIVERY_MENUS[selDelivery].tel && (
+                    <div style={{ padding:"10px 14px", background:C.tealDim, border:`1px solid ${C.tealBorder}`, borderRadius:12, marginBottom:14, fontSize:14, color:C.teal, fontWeight:700 }}>
+                      📞 {DELIVERY_MENUS[selDelivery].tel}
+                    </div>
+                  )}
+                  {DELIVERY_MENUS[selDelivery].sections.map((sec, si)=>(
+                    <div key={si} style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:C.gold, marginBottom:4 }}>{sec.title}</div>
+                      {sec.note && <div style={{ fontSize:11, color:C.textDim, marginBottom:8 }}>{sec.note}</div>}
+                      {sec.items.map((item, ii)=>(
+                        <div key={ii} style={{ padding:"8px 12px", background:C.bgCard, borderRadius:8, marginBottom:4, fontSize:13, color:C.text }}>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {DELIVERY_MENUS[selDelivery].note && (
+                    <div style={{ padding:"10px 14px", background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`, borderRadius:10, fontSize:11, color:C.textDim }}>
+                      {DELIVERY_MENUS[selDelivery].note}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -604,12 +791,28 @@ function CastTerminal({ onExit, settings, shopId }) {
 
   const acol = isGuest ? C.purple : C.pink;
   const bl2  = isGuest ? GUEST_BASE : bases;
+  const myCartItems = cart.filter(i => isGuest ? i.isGuest : i.castName === activeCast);
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", padding:"14px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", gap:10 }}>
         <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
-        <div style={{ flex:1, fontWeight:800, color:acol, fontSize:15 }}>{isGuest?"🥂 ゲストドリンク":`💗 ${activeCast}`}</div>
+        <div style={{ fontWeight:800, color:acol, fontSize:15 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}</div>
+        <div style={{ padding:"3px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, fontWeight:700, color:C.gold }}>{tInfo?.label}</div>
+        {cart.length>0 && <button onClick={()=>setConfirm(true)} style={{ marginLeft:"auto", padding:"6px 14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>送信 {cart.length}件</button>}
       </div>
+      {/* このキャストのカート */}
+      {myCartItems.length>0 && (
+        <div style={{ padding:"8px 16px", background:"rgba(232,184,75,0.06)", borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:4 }}>🛒 カート ({myCartItems.length}件)</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {myCartItems.map((item,i)=>(
+              <div key={i} style={{ padding:"4px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:11, color:C.gold }}>
+                {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ flex:1, padding:"16px", overflowY:"auto" }}>
         {isGuest && (
           <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -672,8 +875,13 @@ function CastTerminal({ onExit, settings, shopId }) {
           </>
         )}
       </div>
-      <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
-        <div style={{ textAlign:"center", color:C.textDim, fontSize:14 }}>👆 ドリンクをタップして数量を選択</div>
+      <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", display:"flex", gap:10 }}>
+        <div style={{ flex:1, textAlign:"center", color:C.textDim, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center" }}>👆 タップして数量を選択</div>
+        {cart.length>0 && (
+          <button onClick={()=>setConfirm(true)} style={{ padding:"12px 20px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14, flexShrink:0 }}>
+            送信 {cart.length}件 →
+          </button>
+        )}
       </div>
       {/* 数量モーダル */}
       {qtyModal && resolved && (
