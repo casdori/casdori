@@ -798,7 +798,7 @@ function CastTerminal({ onExit, settings, shopId }) {
         <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
         <div style={{ fontWeight:800, color:acol, fontSize:15 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}</div>
         <div style={{ padding:"3px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, fontWeight:700, color:C.gold }}>{tInfo?.label}</div>
-        {cart.length>0 && <button onClick={()=>setConfirm(true)} style={{ marginLeft:"auto", padding:"6px 14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>送信 {cart.length}件</button>}
+        {cart.length>0 && <button onClick={submit} style={{ marginLeft:"auto", padding:"8px 16px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>✅ {cart.length}件送信</button>}
       </div>
       {/* このキャストのカート */}
       {myCartItems.length>0 && (
@@ -875,12 +875,13 @@ function CastTerminal({ onExit, settings, shopId }) {
           </>
         )}
       </div>
-      <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", display:"flex", gap:10 }}>
-        <div style={{ flex:1, textAlign:"center", color:C.textDim, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center" }}>👆 タップして数量を選択</div>
-        {cart.length>0 && (
-          <button onClick={()=>setConfirm(true)} style={{ padding:"12px 20px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14, flexShrink:0 }}>
-            送信 {cart.length}件 →
+      <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
+        {cart.length>0 ? (
+          <button onClick={submit} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 20px rgba(62,207,142,0.4)" }}>
+            ✅ {cart.length}件を送信する
           </button>
+        ) : (
+          <div style={{ textAlign:"center", color:C.textDim, fontSize:13, padding:"6px 0" }}>👆 ドリンクをタップして数量を選択</div>
         )}
       </div>
       {/* 数量モーダル */}
