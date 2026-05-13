@@ -102,6 +102,7 @@ function defaultSettings(shopId, shopName) {
       {id:"vipA",label:"VIP(A)"},{id:"vipB",label:"VIP(B)"},
     ],
     castList:["あゆ","ここあ","すずか","さよこ","しおり","なつ","まほ","ひなた","ゆり","マーリー","なな"],
+    castFavs:{}, // {キャスト名: [{drinkId, drinkName, emoji, price, nonAlco, baseId, splitId},...]}
     baseLiquors:[
       {id:"jogo",name:"じょうご",emoji:"🥃"},{id:"sato",name:"里の曙",emoji:"🍶"},
       {id:"rento",name:"れんと",emoji:"🍶"},{id:"kuro",name:"黒伊佐錦",emoji:"🍶"},
@@ -583,6 +584,7 @@ function CastTerminal({ onExit, settings, shopId }) {
   const [guestTab, setGuestTab]     = useState("base");
   const [deliveryModal, setDeliveryModal] = useState(false);
   const [selDelivery, setSelDelivery]     = useState(null);
+  const [favModal, setFavModal]           = useState(false);
 
   const tables   = settings?.tables      || [];
   const casts    = settings?.castList    || [];
@@ -802,6 +804,9 @@ function CastTerminal({ onExit, settings, shopId }) {
         <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
         <div style={{ fontWeight:800, color:acol, fontSize:15 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}</div>
         <div style={{ padding:"3px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, fontWeight:700, color:C.gold }}>{tInfo?.label}</div>
+        {!isGuest && (()=>{const favs=(settings?.castFavs||{})[activeCast]||[]; return favs.length>0 && (
+          <button onClick={()=>setFavModal(true)} style={{ padding:"6px 14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:13 }}>⭐ いつもの</button>
+        );})()}
         {cart.length>0 && <button onClick={submit} style={{ marginLeft:"auto", padding:"8px 16px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>✅ {cart.length}件送信</button>}
       </div>
       {/* このキャストのカート */}
@@ -888,6 +893,34 @@ function CastTerminal({ onExit, settings, shopId }) {
           <div style={{ textAlign:"center", color:C.textDim, fontSize:13, padding:"6px 0" }}>👆 ドリンクをタップして数量を選択</div>
         )}
       </div>
+      {/* いつものモーダル */}
+      {favModal && !isGuest && (
+        <div onClick={()=>setFavModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:150, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#130b28", borderRadius:"24px 24px 0 0", padding:24 }}>
+            <div style={{ textAlign:"center", marginBottom:20 }}>
+              <div style={{ fontSize:28, marginBottom:6 }}>⭐</div>
+              <div style={{ fontSize:18, fontWeight:800, color:C.gold }}>{activeCast} のいつもの</div>
+              <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>タップしてカートに追加</div>
+            </div>
+            {((settings?.castFavs||{})[activeCast]||[]).map((fav,i)=>(
+              <button key={i} onClick={()=>{
+                setCart(p=>[...p,{id:uid(),castName:activeCast,isGuest:false,drinkName:fav.drinkName,emoji:fav.emoji||"🍹",price:fav.price||0,qty:1,nonAlco:fav.nonAlco||false,noCount:false,special:false}]);
+                flash(`${activeCast} → ${fav.drinkName} 追加`);
+                setFavModal(false);
+              }} style={{ width:"100%", display:"flex", alignItems:"center", gap:14, padding:"16px", background:C.bgCard, border:`1px solid ${C.goldBorder}`, borderRadius:16, cursor:"pointer", marginBottom:10 }}>
+                <span style={{ fontSize:28 }}>{fav.emoji||"🍹"}</span>
+                <div style={{ flex:1, textAlign:"left" }}>
+                  <div style={{ fontSize:15, fontWeight:700, color:C.gold }}>{fav.drinkName}</div>
+                  {fav.nonAlco && <div style={{ fontSize:11, color:C.pink }}>❤️ ノンアル</div>}
+                </div>
+                <div style={{ fontSize:13, color:C.textDim }}>¥{(fav.price||0).toLocaleString()}</div>
+                <span style={{ fontSize:18, color:C.gold }}>+</span>
+              </button>
+            ))}
+            <button onClick={()=>setFavModal(false)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14, marginTop:4 }}>閉じる</button>
+          </div>
+        </div>
+      )}
       {/* 数量モーダル */}
       {qtyModal && resolved && (
         <div onClick={()=>setQtyModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
@@ -1180,15 +1213,75 @@ function SettingsPanel({ settings, shopId, onSave, onExit }) {
         {tab==="cast" && (
           <div>
             <div style={{ fontSize:12, color:C.textDim, marginBottom:12 }}>{s.castList.length}名登録中</div>
-            {s.castList.map((name,i)=>(
-              <div key={i} style={{ display:"flex", gap:8, marginBottom:8, alignItems:"center" }}>
-                <div style={{ width:28, height:28, borderRadius:"50%", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.pink, flexShrink:0 }}>{i+1}</div>
-                <input value={name} onChange={e=>{const cl=[...s.castList];cl[i]=e.target.value;setS({...s,castList:cl});}}
-                  style={{ flex:1, padding:"10px 14px", borderRadius:12, fontSize:15, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
-                <button onClick={()=>setS({...s,castList:s.castList.filter((_,j)=>j!==i)})}
-                  style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", flexShrink:0 }}>✕</button>
-              </div>
-            ))}
+            {s.castList.map((name,i)=>{
+              const favs = (s.castFavs||{})[name]||[];
+              const allDrinks = [
+                ...(s.baseLiquors||[]).flatMap(b=>(s.splitTypes||[{id:"mizu",name:"水割り",emoji:"💧"},{id:"soda",name:"ソーダ割り",emoji:"🫧"},{id:"oyu",name:"お湯割り",emoji:"♨️"},{id:"rock",name:"ロック",emoji:"🧊"},{id:"ryoku",name:"緑茶割り",emoji:"🍵"},{id:"sanpin",name:"さんぴん割り",emoji:"🫖"},{id:"oolong",name:"ウーロン割り",emoji:"🍵"},{id:"muto",name:"無糖紅茶割り",emoji:"🍵"}]).map(sp=>({
+                  id:`${b.id}_${sp.id}`,drinkName:`${b.name} ${sp.name}`,emoji:b.emoji,price:1000,nonAlco:false
+                }))),
+                ...(s.castDrinks||[]).map(d=>({id:d.id,drinkName:d.name,emoji:d.emoji,price:d.price,nonAlco:false})),
+                ...(s.castDrinks||[]).map(d=>({id:`${d.id}_nonalco`,drinkName:`${d.name} ❤️`,emoji:d.emoji,price:d.price,nonAlco:true})),
+              ];
+              return (
+                <div key={i} style={{ marginBottom:12, padding:"12px", background:C.bgCard, borderRadius:14, border:`1px solid ${C.border}` }}>
+                  <div style={{ display:"flex", gap:8, marginBottom:8, alignItems:"center" }}>
+                    <div style={{ width:28, height:28, borderRadius:"50%", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.pink, flexShrink:0 }}>{i+1}</div>
+                    <input value={name} onChange={e=>{const cl=[...s.castList];cl[i]=e.target.value;setS({...s,castList:cl});}}
+                      style={{ flex:1, padding:"10px 14px", borderRadius:12, fontSize:15, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
+                    <button onClick={()=>setS({...s,castList:s.castList.filter((_,j)=>j!==i)})}
+                      style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", flexShrink:0 }}>✕</button>
+                  </div>
+                  {/* いつもの設定 */}
+                  <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:6 }}>⭐ いつもの（最大3つ）</div>
+                  {favs.map((fav,fi)=>(
+                    <div key={fi} style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+                      <span style={{ fontSize:14 }}>{fav.emoji}</span>
+                      <span style={{ fontSize:12, color:C.gold, flex:1 }}>{fav.drinkName}</span>
+                      <button onClick={()=>{
+                        const newFavs={...s.castFavs};
+                        newFavs[name]=(newFavs[name]||[]).filter((_,fi2)=>fi2!==fi);
+                        setS({...s,castFavs:newFavs});
+                      }} style={{ padding:"4px 8px", borderRadius:8, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", fontSize:11 }}>✕</button>
+                    </div>
+                  ))}
+                  {favs.length<3 && (
+                    <select onChange={e=>{
+                      if(!e.target.value) return;
+                      const d=allDrinks.find(x=>x.id===e.target.value);
+                      if(!d) return;
+                      const newFavs={...s.castFavs};
+                      newFavs[name]=[...(newFavs[name]||[]),d];
+                      setS({...s,castFavs:newFavs});
+                      e.target.value="";
+                    }} defaultValue="" style={{ width:"100%", padding:"8px 12px", borderRadius:10, fontSize:12, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(20,10,40,0.9)", color:"#ede8f8", outline:"none", cursor:"pointer" }}>
+                      <option value="">＋ いつものドリンクを追加...</option>
+                      <optgroup label="ベース酒（水割り）">
+                        {(s.baseLiquors||[]).map(b=>(<option key={`${b.id}_mizu`} value={`${b.id}_mizu`}>{b.name} 水割り</option>))}
+                      </optgroup>
+                      <optgroup label="ベース酒（ソーダ割り）">
+                        {(s.baseLiquors||[]).map(b=>(<option key={`${b.id}_soda`} value={`${b.id}_soda`}>{b.name} ソーダ割り</option>))}
+                      </optgroup>
+                      <optgroup label="ベース酒（その他）">
+                        {(s.baseLiquors||[]).flatMap(b=>[
+                          <option key={`${b.id}_oyu`} value={`${b.id}_oyu`}>{b.name} お湯割り</option>,
+                          <option key={`${b.id}_rock`} value={`${b.id}_rock`}>{b.name} ロック</option>,
+                          <option key={`${b.id}_ryoku`} value={`${b.id}_ryoku`}>{b.name} 緑茶割り</option>,
+                          <option key={`${b.id}_sanpin`} value={`${b.id}_sanpin`}>{b.name} さんぴん割り</option>,
+                          <option key={`${b.id}_oolong`} value={`${b.id}_oolong`}>{b.name} ウーロン割り</option>,
+                          <option key={`${b.id}_muto`} value={`${b.id}_muto`}>{b.name} 無糖紅茶割り</option>,
+                        ])}
+                      </optgroup>
+                      <optgroup label="その他ドリンク">
+                        {(s.castDrinks||[]).map(d=>(<option key={d.id} value={d.id}>{d.name}</option>))}
+                      </optgroup>
+                      <optgroup label="ノンアル">
+                        {(s.castDrinks||[]).map(d=>(<option key={`${d.id}_nonalco`} value={`${d.id}_nonalco`}>{d.name} ❤️</option>))}
+                      </optgroup>
+                    </select>
+                  )}
+                </div>
+              );
+            })}
             <button onClick={()=>setS({...s,castList:[...s.castList,""]})}
               style={{ width:"100%", padding:"12px", borderRadius:12, border:`1px dashed ${C.pink}`, background:"transparent", color:C.pink, cursor:"pointer", fontSize:14, marginTop:4 }}>＋ キャスト追加</button>
           </div>
