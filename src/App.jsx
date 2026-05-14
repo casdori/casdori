@@ -297,6 +297,7 @@ const GUEST_PITCHER = [
 const SERVICES = [
   {id:"ice",name:"アイス（氷）",emoji:"🧊"},{id:"ash",name:"灰皿",emoji:"🪣"},
   {id:"oshi",name:"おしぼり",emoji:"🧻"},{id:"gomi",name:"ゴミ回収",emoji:"🗑️"},
+  {id:"stamp",name:"スタンプ",emoji:"📮"},
 ];
 
 const C = {
