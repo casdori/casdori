@@ -64,6 +64,22 @@ const DB = {
       if(Object.keys(u).length>0) await update(ref(db),u);
     } catch(e){console.error(e);}
   },
+  // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
+  checkoutTable: async (shopId, tableId) => {
+    try {
+      const [bs,ss] = await Promise.all([get(ref(db,`shops/${shopId}/batches`)),get(ref(db,`shops/${shopId}/services`))]);
+      const u={};
+      if(bs.exists()) Object.entries(bs.val()).forEach(([k,v])=>{ 
+        if(String(v.tableId)===String(tableId)) {
+          // archivedに移動（キャスト集計のために保持）
+          u[`shops/${shopId}/archived/${k}`]={...v, checkedOut:true, checkoutTime: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})};
+          u[`shops/${shopId}/batches/${k}`]=null;
+        }
+      });
+      if(ss.exists()) Object.entries(ss.val()).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) u[`shops/${shopId}/services/${k}`]=null; });
+      if(Object.keys(u).length>0) await update(ref(db),u);
+    } catch(e){console.error(e);}
+  },
   // バッチ内の特定アイテムを削除
   removeItemFromBatch: async (shopId, batchId, itemIndex, currentItems) => {
     try {
@@ -80,13 +96,16 @@ const DB = {
   subscribe: (shopId, cb) => {
     const bRef = ref(db,`shops/${shopId}/batches`);
     const sRef = ref(db,`shops/${shopId}/services`);
-    let batches=[], services=[];
-    const notify = () => cb({batches:[...batches],services:[...services]});
+    const aRef = ref(db,`shops/${shopId}/archived`);
+    let batches=[], services=[], archived=[];
+    const notify = () => cb({batches:[...batches],services:[...services],archived:[...archived]});
     const bh = snap => { batches=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
     const sh = snap => { services=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
+    const ah = snap => { archived=snap.exists()?Object.values(snap.val()):[]; notify(); };
     onValue(bRef,bh);
     onValue(sRef,sh);
-    return () => { off(bRef,'value',bh); off(sRef,'value',sh); };
+    onValue(aRef,ah);
+    return () => { off(bRef,'value',bh); off(sRef,'value',sh); off(aRef,'value',ah); };
   },
 };
 
@@ -980,25 +999,27 @@ function CastTerminal({ onExit, settings, shopId }) {
 }
 
 function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
-  const [data, setData]             = useState({ batches:[], services:[] });
+  const [data, setData]             = useState({ batches:[], services:[], archived:[] });
   const [tab, setTab]               = useState("kitchen");
   const [detailCast, setDetailCast] = useState(null);
   const [statsTab, setStatsTab]     = useState("cast");
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
-  const { batches, services } = data;
+  const { batches, services, archived } = data;
+  // batches（会計前）+ archived（会計済み）を合算してキャスト集計
+  const allBatches = [...batches, ...(archived||[])];
   const pending  = batches.filter(b=>b.status==="pending");
   const done     = batches.filter(b=>b.status==="done");
   const pendSvc  = services.filter(s=>s.status==="pending");
 
   const castMap = {};
   let totalSales=0, totalCups=0;
-  batches.forEach(b=>b.items.forEach((item,itemIdx)=>{
+  allBatches.forEach(b=>b.items.forEach((item,itemIdx)=>{
     if(item.noCount||item.isGuest||!item.castName) return;
     if(!castMap[item.castName]) castMap[item.castName]={name:item.castName,revenue:0,cups:0,drinks:{},rawItems:[]};
     const rev=(item.price||0)*(item.qty||1);
     castMap[item.castName].revenue+=rev; castMap[item.castName].cups+=(item.qty||1);
-    castMap[item.castName].rawItems.push({...item, batchId:b.batchId, itemIndex:itemIdx, batchItems:b.items});
+    if(!b.checkedOut) castMap[item.castName].rawItems.push({...item, batchId:b.batchId, itemIndex:itemIdx, batchItems:b.items});
     totalSales+=rev; totalCups+=(item.qty||1);
     const dk=item.drinkName+(item.nonAlco?" ❤️":"");
     if(!castMap[item.castName].drinks[dk]) castMap[item.castName].drinks[dk]={name:dk,emoji:item.emoji||"🍹",qty:0,total:0,price:item.price||0};
@@ -1013,13 +1034,13 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   useEffect(() => {
     const today = new Date().toISOString().slice(0,10);
     const tMap = {};
-    batches.forEach(b => {
+    allBatches.forEach(b => {
       const k = String(b.tableId);
       if (!tMap[k]) tMap[k] = { tableLabel:b.tableLabel, total:0, cups:0 };
       b.items.forEach(item => { if(!item.noCount){ tMap[k].total+=(item.price||0)*(item.qty||1); tMap[k].cups+=(item.qty||1); } });
     });
     const cMap2 = {};
-    batches.forEach(b => b.items.forEach(item => {
+    allBatches.forEach(b => b.items.forEach(item => {
       if (item.noCount || !item.castName) return;
       if (!cMap2[item.castName]) cMap2[item.castName] = { castName:item.castName, revenue:0, cups:0, items:[] };
       cMap2[item.castName].revenue += (item.price||0)*(item.qty||1);
