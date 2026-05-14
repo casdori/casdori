@@ -1134,6 +1134,40 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 <div style={{ fontSize:24, fontWeight:900, color:C.pink }}>{totalCups}杯</div>
               </div>
             </div>
+            {/* 卓別合計 */}
+            {(()=>{
+              const tMap={};
+              batches.forEach(b=>{
+                const k=String(b.tableId);
+                if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0,batchIds:[]};
+                b.items.forEach(item=>{if(!item.noCount){tMap[k].total+=(item.price||0)*(item.qty||1);tMap[k].cups+=(item.qty||1);}});
+                tMap[k].batchIds.push(b.batchId);
+              });
+              const tables=Object.values(tMap).sort((a,b)=>b.total-a.total);
+              if(tables.length===0) return null;
+              return (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:12, color:C.gold, fontWeight:700, marginBottom:10 }}>🍽️ 卓別合計</div>
+                  {tables.map((t,i)=>(
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}` }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:15, fontWeight:800, color:C.gold, marginBottom:2 }}>{t.label}</div>
+                        <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯</div>
+                      </div>
+                      <div style={{ fontSize:18, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
+                      <button onClick={async()=>{
+                        if(!window.confirm(`${t.label} の会計をしますか？
+¥${t.total.toLocaleString()}
+この卓のデータがリセットされます。`)) return;
+                        await DB.resetTable(shopId, t.tableId);
+                      }} style={{ padding:"8px 14px", borderRadius:12, border:"none", background:"rgba(232,184,75,0.9)", color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13, flexShrink:0 }}>
+                        💴 会計
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:12 }}>💗 キャスト別（タップで詳細）</div>
             {casts.length===0 ? <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>まだデータがありません</div> : casts.map((c,i)=>(
               <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
