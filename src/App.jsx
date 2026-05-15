@@ -1191,67 +1191,82 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         )}
         {tab==="stats" && !detailCast && (
           <div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-              <div style={{ padding:"16px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:16, textAlign:"center" }}>
-                <div style={{ fontSize:11, color:C.textDim, marginBottom:4 }}>本日の売上</div>
-                <div style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{totalSales.toLocaleString()}</div>
+            {/* サマリー */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+              <div style={{ padding:"14px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:14, textAlign:"center" }}>
+                <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>本日の売上</div>
+                <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>¥{totalSales.toLocaleString()}</div>
               </div>
-              <div style={{ padding:"16px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:16, textAlign:"center" }}>
-                <div style={{ fontSize:11, color:C.textDim, marginBottom:4 }}>本日の杯数</div>
-                <div style={{ fontSize:24, fontWeight:900, color:C.pink }}>{totalCups}杯</div>
+              <div style={{ padding:"14px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:14, textAlign:"center" }}>
+                <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>本日の杯数</div>
+                <div style={{ fontSize:22, fontWeight:900, color:C.pink }}>{totalCups}杯</div>
               </div>
             </div>
-            {/* 卓別合計 */}
-            {(()=>{
+            {/* サブタブ */}
+            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              {[["table","🍽️ 卓別合計"],["cast","💗 キャスト別"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setStatsTab(k)} style={{ flex:1, padding:"10px", borderRadius:14, border:`1px solid ${statsTab===k?(k==="table"?C.gold:C.pink):C.border}`, background:statsTab===k?(k==="table"?C.goldDim:C.pinkDim):"transparent", color:statsTab===k?(k==="table"?C.gold:C.pink):C.textDim, fontWeight:700, fontSize:14, cursor:"pointer" }}>{l}</button>
+              ))}
+            </div>
+
+            {/* 卓別合計タブ */}
+            {statsTab==="table" && (()=>{
               const tMap={};
               batches.forEach(b=>{
                 const k=String(b.tableId);
-                if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0,batchIds:[]};
+                if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0};
                 b.items.forEach(item=>{if(!item.noCount){tMap[k].total+=(item.price||0)*(item.qty||1);tMap[k].cups+=(item.qty||1);}});
-                tMap[k].batchIds.push(b.batchId);
               });
               const tables=Object.values(tMap).sort((a,b)=>b.total-a.total);
-              if(tables.length===0) return null;
-              return (
-                <div style={{ marginBottom:20 }}>
-                  <div style={{ fontSize:12, color:C.gold, fontWeight:700, marginBottom:10 }}>🍽️ 卓別合計</div>
-                  {tables.map((t,i)=>(
-                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}` }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:15, fontWeight:800, color:C.gold, marginBottom:2 }}>{t.label}</div>
-                        <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯</div>
-                      </div>
-                      <div style={{ fontSize:18, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
-                      <button onClick={async()=>{
-                        if(!window.confirm(`${t.label} の会計をしますか？
-¥${t.total.toLocaleString()}
-この卓のデータがリセットされます。`)) return;
-                        await DB.resetTable(shopId, t.tableId);
-                      }} style={{ padding:"8px 14px", borderRadius:12, border:"none", background:"rgba(232,184,75,0.9)", color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13, flexShrink:0 }}>
-                        💴 会計
-                      </button>
-                    </div>
-                  ))}
+              return tables.length===0 ? (
+                <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>
+                  <div style={{ fontSize:32, marginBottom:12 }}>🍽️</div>
+                  <div>会計待ちの卓はありません</div>
                 </div>
-              );
-            })()}
-            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:12 }}>💗 キャスト別（タップで詳細）</div>
-            {casts.length===0 ? <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>まだデータがありません</div> : casts.map((c,i)=>(
-              <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
-                <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:C.pink }}>{i+1}</div>
-                <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.name}</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
-                    <div style={{ height:"100%", width:`${(c.revenue/maxRev)*100}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
+              ) : tables.map((t,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"16px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}` }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:3 }}>{t.label}</div>
+                    <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯</div>
                   </div>
-                  <div style={{ fontSize:11, color:C.textDim }}>{c.cups}杯</div>
+                  <div style={{ fontSize:20, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
+                  <button onClick={async()=>{
+                    if(!window.confirm(`${t.label} の会計\n¥${t.total.toLocaleString()}\n\nキャストの売上はそのまま残ります`)) return;
+                    await DB.checkoutTable(shopId, t.tableId);
+                  }} style={{ padding:"10px 16px", borderRadius:12, border:"none", background:"rgba(232,184,75,0.9)", color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14, flexShrink:0 }}>
+                    💴 会計
+                  </button>
                 </div>
-                <div style={{ textAlign:"right", flexShrink:0 }}>
-                  <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{c.revenue.toLocaleString()}</div>
-                  <div style={{ fontSize:10, color:C.textDim }}>→ 詳細</div>
-                </div>
-              </button>
-            ))}
+              ));
+            })()}
+
+            {/* キャスト別タブ */}
+            {statsTab==="cast" && (
+              <div>
+                <div style={{ fontSize:11, color:C.textDim, marginBottom:10 }}>※ 会計後もキャストの杯数・売上は累積されます</div>
+                {casts.length===0 ? (
+                  <div style={{ textAlign:"center", padding:"40px", color:C.textDim }}>
+                    <div style={{ fontSize:32, marginBottom:12 }}>💗</div>
+                    <div>まだデータがありません</div>
+                  </div>
+                ) : casts.map((c,i)=>(
+                  <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
+                    <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:C.pink }}>{i+1}</div>
+                    <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.name}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
+                        <div style={{ height:"100%", width:`${(c.revenue/maxRev)*100}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
+                      </div>
+                      <div style={{ fontSize:11, color:C.textDim }}>{c.cups}杯</div>
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{c.revenue.toLocaleString()}</div>
+                      <div style={{ fontSize:10, color:C.textDim }}>→ 詳細</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {tab==="stats" && detailCast && detail && (
