@@ -126,6 +126,7 @@ function defaultSettings(shopId, shopName) {
       {id:"jogo",name:"じょうご",emoji:"🥃"},{id:"sato",name:"里の曙",emoji:"🍶"},
       {id:"rento",name:"れんと",emoji:"🍶"},{id:"kuro",name:"黒伊佐錦",emoji:"🍶"},
       {id:"whisky",name:"ウイスキー",emoji:"🥃"},{id:"marrika",name:"茉莉花",emoji:"🌸"},
+      {id:"nikaido",name:"二階堂",emoji:"🍶"},
     ],
     castDrinks:[
       {id:"highball",name:"ハイボール",price:1000,emoji:"🥃"},
@@ -298,6 +299,7 @@ const SERVICES = [
   {id:"ice",name:"アイス（氷）",emoji:"🧊"},{id:"ash",name:"灰皿",emoji:"🪣"},
   {id:"oshi",name:"おしぼり",emoji:"🧻"},{id:"gomi",name:"ゴミ回収",emoji:"🗑️"},
   {id:"stamp",name:"スタンプ",emoji:"📮"},
+  {id:"charger",name:"モバイル充電器",emoji:"🔋"},
 ];
 
 const C = {
@@ -598,6 +600,9 @@ function CastTerminal({ onExit, settings, shopId }) {
   const [nonAlco, setNonAlco]       = useState(false);
   const [qty, setQty]               = useState(1);
   const [qtyModal, setQtyModal]     = useState(false);
+  const [drinkOpt, setDrinkOpt]     = useState("普通"); // 普通/濃いめ/薄め/ホット
+  const [msgModal, setMsgModal]     = useState(false);  // 伝達事項モーダル
+  const [msgText, setMsgText]       = useState("");
   const [cart, setCart]             = useState([]);
   const [notif, setNotif]           = useState(null);
   const [confirm, setConfirm]       = useState(false);
@@ -639,9 +644,10 @@ function CastTerminal({ onExit, settings, shopId }) {
   function tapDrink(id) { setSelDrink(id); setSelBase(null); setSelSplit(null); setSplitModal(false); setQty(1); setQtyModal(true); }
   function addCart() {
     if(!resolved) return;
-    setCart(p=>[...p,{id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name,emoji:resolved.emoji,price:isGuest?0:resolved.price,qty,nonAlco,noCount:isGuest,special:resolved.special||false}]);
-    flash(`${isGuest?"ゲスト":activeCast} → ${resolved.name} ×${qty} 追加`);
-    setQtyModal(false); setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setNonAlco(false); setQty(1);
+    const optLabel = drinkOpt!=="普通" ? ` (${drinkOpt})` : "";
+    setCart(p=>[...p,{id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name+optLabel,emoji:resolved.emoji,price:isGuest?0:resolved.price,qty,nonAlco,noCount:isGuest,special:resolved.special||false}]);
+    flash(`${isGuest?"ゲスト":activeCast} → ${resolved.name}${optLabel} ×${qty} 追加`);
+    setQtyModal(false); setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setNonAlco(false); setQty(1); setDrinkOpt("普通");
   }
   function sendSvc(svc) { DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,...svc,time:nowShort(),status:"pending"}); flash(`${svc.name} 送信`); }
   function submit() {
@@ -905,14 +911,47 @@ function CastTerminal({ onExit, settings, shopId }) {
         )}
       </div>
       <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
-        {cart.length>0 ? (
+        <div style={{ display:"flex", gap:8, marginBottom: cart.length>0 ? 8 : 0 }}>
+          <button onClick={()=>setMsgModal(true)} style={{ padding:"12px 16px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, cursor:"pointer", fontSize:13, flexShrink:0 }}>
+            📝 伝達事項
+          </button>
+          {cart.length===0 && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:C.textDim, fontSize:13 }}>👆 ドリンクをタップして選択</div>}
+        </div>
+        {cart.length>0 && (
           <button onClick={submit} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 20px rgba(62,207,142,0.4)" }}>
             ✅ {cart.length}件を送信する
           </button>
-        ) : (
-          <div style={{ textAlign:"center", color:C.textDim, fontSize:13, padding:"6px 0" }}>👆 ドリンクをタップして数量を選択</div>
         )}
       </div>
+      {/* 伝達事項モーダル */}
+      {msgModal && (
+        <div onClick={()=>setMsgModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#130b28", borderRadius:"24px 24px 0 0", padding:24 }}>
+            <div style={{ textAlign:"center", marginBottom:16 }}>
+              <div style={{ fontSize:22, marginBottom:6 }}>📝</div>
+              <div style={{ fontSize:17, fontWeight:800, color:C.teal }}>伝達事項</div>
+              <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>ドリンク場へのメッセージを送信します</div>
+            </div>
+            <div style={{ fontSize:12, color:C.textDim, marginBottom:6 }}>{tInfo?.label}　{isGuest?"ゲスト":`💗 ${activeCast}`}</div>
+            <textarea value={msgText} onChange={e=>setMsgText(e.target.value)}
+              placeholder="例：じょうごは薄めで、コーラは氷少なめで..."
+              rows={4}
+              style={{ width:"100%", padding:"14px", borderRadius:14, fontSize:14, boxSizing:"border-box", border:`1px solid ${C.tealBorder}`, background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none", resize:"none", lineHeight:1.6 }}
+            />
+            <div style={{ display:"flex", gap:10, marginTop:12 }}>
+              <button onClick={()=>{setMsgModal(false);setMsgText("");}} style={{ flex:1, padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>キャンセル</button>
+              <button onClick={()=>{
+                if(!msgText.trim()) return;
+                DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,name:`📝 ${msgText.trim()}`,emoji:"📝",time:nowShort(),status:"pending",isMessage:true,castName:isGuest?"ゲスト":activeCast});
+                flash("伝達事項を送信しました");
+                setMsgModal(false); setMsgText("");
+              }} disabled={!msgText.trim()} style={{ flex:2, padding:"14px", borderRadius:14, border:"none", background:C.teal, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14 }}>
+                送信する →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* いつものモーダル */}
       {favModal && !isGuest && (
         <div onClick={()=>setFavModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:150, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
@@ -950,12 +989,18 @@ function CastTerminal({ onExit, settings, shopId }) {
               <div style={{ fontSize:18, fontWeight:800, color:C.gold, marginBottom:4 }}>{resolved.name}</div>
               {!isGuest && <div style={{ fontSize:14, color:C.textDim }}>¥{(resolved.price||0).toLocaleString()} × {qty} = ¥{((resolved.price||0)*qty).toLocaleString()}</div>}
             </div>
-            <button onClick={()=>setNonAlco(n=>!n)} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderRadius:14, border:`1px solid ${nonAlco?C.pink:C.border}`, background:nonAlco?C.pinkDim:"transparent", cursor:"pointer", marginBottom:16 }}>
+            <button onClick={()=>setNonAlco(n=>!n)} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderRadius:14, border:`1px solid ${nonAlco?C.pink:C.border}`, background:nonAlco?C.pinkDim:"transparent", cursor:"pointer", marginBottom:10 }}>
               <span style={{ fontSize:15, color:nonAlco?C.pink:C.textDim, fontWeight:700 }}>❤️ ノンアル</span>
               <div style={{ width:44, height:26, borderRadius:13, background:nonAlco?C.pink:"rgba(255,255,255,0.15)", position:"relative", transition:"background 0.2s" }}>
                 <div style={{ position:"absolute", top:3, left:nonAlco?20:3, width:20, height:20, borderRadius:"50%", background:"#fff", transition:"left 0.2s" }} />
               </div>
             </button>
+            {/* 濃さ・温度オプション */}
+            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              {["普通","濃いめ","薄め","ホット"].map(opt=>(
+                <button key={opt} onClick={()=>setDrinkOpt(o=>o===opt?"普通":opt)} style={{ flex:1, padding:"8px 4px", borderRadius:10, border:`1px solid ${drinkOpt===opt&&opt!=="普通"?C.teal:C.border}`, background:drinkOpt===opt&&opt!=="普通"?C.tealDim:"transparent", color:drinkOpt===opt&&opt!=="普通"?C.teal:C.textDim, fontSize:12, fontWeight:drinkOpt===opt?"700":"400", cursor:"pointer" }}>{opt}</button>
+              ))}
+            </div>
             <div style={{ fontSize:13, color:C.textDim, fontWeight:700, marginBottom:12, textAlign:"center" }}>数量を選択</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:16 }}>
               {[1,2,3,4,5].map(n=>(
