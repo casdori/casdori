@@ -65,9 +65,9 @@ const DB = {
     } catch(e){console.error(e);}
   },
   // 日次自動リセット：レポート保存→batches・archivedをクリア
-  autoResetDay: async (shopId, date) => {
+  // 日次リセット：前日データをレポート保存→batches・archivedをクリア
+  autoResetDay: async (shopId, saveDate) => {
     try {
-      // batches・archivedを取得
       const [bs, as_] = await Promise.all([
         get(ref(db, `shops/${shopId}/batches`)),
         get(ref(db, `shops/${shopId}/archived`)),
@@ -75,8 +75,9 @@ const DB = {
       const batches  = bs.exists()  ? Object.values(bs.val())  : [];
       const archived = as_.exists() ? Object.values(as_.val()) : [];
       const all = [...batches, ...archived];
+      if (all.length === 0) return; // データなしなら何もしない
 
-      // キャスト・卓のレポートを集計
+      // 集計
       const tMap = {}, cMap = {};
       let totalCups = 0;
       all.forEach(b => {
@@ -97,21 +98,20 @@ const DB = {
         });
       });
 
-      // レポートを保存（既存があればマージ）
-      const existingSnap = await get(ref(db, `shops/${shopId}/reports/${date}`));
-      const existing = existingSnap.exists() ? existingSnap.val() : null;
-      await set(ref(db, `shops/${shopId}/reports/${date}`), {
-        date,
+      // 前日のレポートに保存
+      await set(ref(db, `shops/${shopId}/reports/${saveDate}`), {
+        date: saveDate,
         tableReports: Object.values(tMap),
         castReports: Object.values(cMap),
-        totalCups: existing ? (existing.totalCups||0) + totalCups : totalCups,
+        totalCups,
       });
 
       // batches・archivedをクリア
       const u = {};
-      if (bs.exists())  Object.keys(bs.val()).forEach(k  => { u[`shops/${shopId}/batches/${k}`]  = null; });
+      if (bs.exists())  Object.keys(bs.val()).forEach(k => { u[`shops/${shopId}/batches/${k}`]  = null; });
       if (as_.exists()) Object.keys(as_.val()).forEach(k => { u[`shops/${shopId}/archived/${k}`] = null; });
       if (Object.keys(u).length > 0) await update(ref(db), u);
+      console.log(`[CASDORI] 日次リセット完了: ${saveDate}`);
     } catch(e) { console.error("autoResetDay error:", e); }
   },
   // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
@@ -162,21 +162,24 @@ const DB = {
 function uid() { return Math.random().toString(36).slice(2,9); }
 function nowShort() { return new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}); }
 // 03:00〜翌03:00を1日とする日付文字列を返す
-function getBusinessDate() {
+// 03:00を境界とした営業日のISO日付文字列 (YYYY-MM-DD)
+function getBusinessDate(offsetDays=0) {
   const now = new Date();
-  // 03:00より前（深夜）は前日扱い
-  if (now.getHours() < 3) {
-    const prev = new Date(now);
-    prev.setDate(prev.getDate() - 1);
-    return prev.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
-  }
-  return now.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+  if (now.getHours() < 3) now.setDate(now.getDate() - 1);
+  now.setDate(now.getDate() + offsetDays);
+  const y = now.getFullYear();
+  const m = String(now.getMonth()+1).padStart(2,"0");
+  const d = String(now.getDate()).padStart(2,"0");
+  return `${y}-${m}-${d}`;
 }
 // 1ヶ月前の日付
 function getOneMonthAgo() {
   const d = new Date();
   d.setMonth(d.getMonth() - 1);
-  return d.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const dd = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${dd}`;
 }
 
 function defaultSettings(shopId, shopName) {
@@ -1126,29 +1129,32 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
-  // 03:00に自動リセット
+  // 03:00自動リセット
   useEffect(()=>{
-    const checkReset = async () => {
-      const now = new Date();
-      const h = now.getHours(), m = now.getMinutes();
-      // 03:00〜03:05 の間に1回だけ実行
-      if (h === 3 && m < 5) {
-        const lastReset = localStorage.getItem(`casdori_last_reset_${shopId}`);
-        const today = getBusinessDate();
-        // 前日の日付（03:00時点では前日扱い → getBusinessDateは前日を返す）
-        const yesterday = (()=>{
-          const d = new Date();
-          d.setDate(d.getDate()-1);
-          return d.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
-        })();
-        if (lastReset !== yesterday) {
-          await DB.autoResetDay(shopId, yesterday);
-          localStorage.setItem(`casdori_last_reset_${shopId}`, yesterday);
-        }
-      }
+    const RESET_KEY = `casdori_reset_${shopId}`;
+
+    const doReset = async () => {
+      const today = getBusinessDate();        // 今日の営業日
+      const yesterday = getBusinessDate(-1);  // 前日の営業日
+      const lastReset = localStorage.getItem(RESET_KEY);
+
+      // 今日すでにリセット済みならスキップ
+      if (lastReset === today) return;
+
+      // 前日のデータをレポートに保存してクリア
+      await DB.autoResetDay(shopId, yesterday);
+      localStorage.setItem(RESET_KEY, today);
     };
-    checkReset();
-    const timer = setInterval(checkReset, 60 * 1000); // 1分ごとにチェック
+
+    // 起動時にチェック（前日データが残っていたら即リセット）
+    doReset();
+
+    // 03:00になったら実行（1分ごとに時刻チェック）
+    const timer = setInterval(()=>{
+      const now = new Date();
+      if (now.getHours() === 3 && now.getMinutes() === 0) doReset();
+    }, 60 * 1000);
+
     return () => clearInterval(timer);
   }, [shopId]);
   const { batches, services, archived } = data;
