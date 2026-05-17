@@ -680,6 +680,7 @@ function CastTerminal({ onExit, settings, shopId }) {
   const [deliveryModal, setDeliveryModal] = useState(false);
   const [selDelivery, setSelDelivery]     = useState(null);
   const [favModal, setFavModal]           = useState(false);
+  const [submitResult, setSubmitResult]   = useState(null); // 送信完了モーダル用
 
   const tables   = settings?.tables      || [];
   const casts    = settings?.castList    || [];
@@ -721,8 +722,10 @@ function CastTerminal({ onExit, settings, shopId }) {
   }
   function sendSvc(svc) { DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,...svc,time:nowShort(),status:"pending"}); flash(`${svc.name} 送信`); }
   function submit() {
-    DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:[...cart]});
-    flash(`${cart.length}件 送信 ✓`); setCart([]); setConfirm(false);
+    const sentItems = [...cart];
+    DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:sentItems});
+    setSubmitResult({ tableLabel:tInfo?.label, items:sentItems, time:nowShort() });
+    setCart([]); setConfirm(false);
   }
 
   if (phase==="tableSetup") return (
@@ -1053,6 +1056,48 @@ function CastTerminal({ onExit, settings, shopId }) {
               </button>
             ))}
             <button onClick={()=>setFavModal(false)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14, marginTop:4 }}>閉じる</button>
+          </div>
+        </div>
+      )}
+      {/* 送信完了モーダル */}
+      {submitResult && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+          onClick={()=>setSubmitResult(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:420, background:"#0d1f10", border:`2px solid ${C.green}`, borderRadius:24, padding:24, boxShadow:`0 0 40px rgba(62,207,142,0.3)` }}>
+            {/* 完了アイコン */}
+            <div style={{ textAlign:"center", marginBottom:20 }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>✅</div>
+              <div style={{ fontSize:20, fontWeight:900, color:C.green }}>送信しました！</div>
+              <div style={{ fontSize:13, color:C.textDim, marginTop:4 }}>{submitResult.time}</div>
+            </div>
+            {/* 卓番号 */}
+            <div style={{ padding:"10px 16px", background:"rgba(232,184,75,0.15)", border:`1px solid ${C.goldBorder}`, borderRadius:14, marginBottom:14, textAlign:"center" }}>
+              <div style={{ fontSize:12, color:C.textDim, marginBottom:2 }}>送信先</div>
+              <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>🍽️ {submitResult.tableLabel}</div>
+            </div>
+            {/* 注文内容 */}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>注文内容</div>
+            <div style={{ maxHeight:"40vh", overflowY:"auto", marginBottom:16 }}>
+              {submitResult.items.map((item,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"rgba(255,255,255,0.04)", borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:20 }}>{item.emoji}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink }}>
+                      {item.isGuest?"🥂 ゲスト":`💗 ${item.castName}`}
+                    </div>
+                    <div style={{ fontSize:12, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.textDim }}>×{item.qty||1}</div>
+                    {!item.noCount && <div style={{ fontSize:11, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* 閉じるボタン */}
+            <button onClick={()=>setSubmitResult(null)} style={{ width:"100%", padding:"14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:900, fontSize:16, cursor:"pointer" }}>
+              OK
+            </button>
           </div>
         </div>
       )}
@@ -1618,10 +1663,12 @@ function DailyReportPanel({ shopId, onExit }) {
 
   function selDay(d) { setSelDate(d); setDetail(null); DB.loadDailyReport(shopId,d).then(setReport); }
 
-  const total = report?report.tableReports.reduce((s,t)=>s+t.total,0):0;
-  const cups  = report?(report.castReports||[]).reduce((s,c)=>s+c.cups,0):0;
-  const maxR  = report?Math.max(...(report.castReports||[]).map(c=>c.revenue),1):1;
-  const dData = detail&&report?(report.castReports||[]).find(c=>c.castName===detail):null;
+  const tableReports = report?.tableReports || [];
+  const castReports  = report?.castReports  || [];
+  const total = tableReports.reduce((s,t)=>s+(t.total||0),0);
+  const cups  = castReports.reduce((s,c)=>s+(c.cups||0),0);
+  const maxR  = castReports.length>0 ? Math.max(...castReports.map(c=>c.revenue||0),1) : 1;
+  const dData = detail&&report ? castReports.find(c=>c.castName===detail) : null;
 
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
@@ -1656,7 +1703,7 @@ function DailyReportPanel({ shopId, onExit }) {
               </div>
             </div>
             <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>💗 キャスト別（タップで詳細）</div>
-            {(report.castReports||[]).sort((a,b)=>b.revenue-a.revenue).map((c,i)=>(
+            {[...castReports].sort((a,b)=>(b.revenue||0)-(a.revenue||0)).map((c,i)=>(
               <button key={i} onClick={()=>setDetail(c.castName)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
                 <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.bgCard, border:i>2?`1px solid ${C.border}`:"none", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:i<=2?"#0a0618":C.textDim }}>{i+1}</div>
                 <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.castName}</div>
@@ -1673,11 +1720,11 @@ function DailyReportPanel({ shopId, onExit }) {
               </button>
             ))}
             <div style={{ fontSize:12, color:C.textDim, fontWeight:700, margin:"16px 0 10px" }}>🍽️ 卓別売上</div>
-            {report.tableReports.map((t,i)=>(
+            {tableReports.map((t,i)=>(
               <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:8, border:`1px solid ${C.border}` }}>
                 <div style={{ fontWeight:800, color:C.gold, width:70, fontSize:13 }}>{t.tableLabel}</div>
                 <div style={{ flex:1, height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden" }}>
-                  <div style={{ height:"100%", width:`${total>0?(t.total/total)*100:0}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
+                  <div style={{ height:"100%", width:`${total>0?((t.total||0)/total)*100:0}%`, background:`linear-gradient(90deg,${C.gold},${C.pink})`, borderRadius:3 }} />
                 </div>
                 <div style={{ fontWeight:800, color:C.gold, width:90, textAlign:"right", fontSize:14 }}>¥{t.total.toLocaleString()}</div>
               </div>
