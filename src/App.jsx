@@ -64,6 +64,56 @@ const DB = {
       if(Object.keys(u).length>0) await update(ref(db),u);
     } catch(e){console.error(e);}
   },
+  // 日次自動リセット：レポート保存→batches・archivedをクリア
+  autoResetDay: async (shopId, date) => {
+    try {
+      // batches・archivedを取得
+      const [bs, as_] = await Promise.all([
+        get(ref(db, `shops/${shopId}/batches`)),
+        get(ref(db, `shops/${shopId}/archived`)),
+      ]);
+      const batches  = bs.exists()  ? Object.values(bs.val())  : [];
+      const archived = as_.exists() ? Object.values(as_.val()) : [];
+      const all = [...batches, ...archived];
+
+      // キャスト・卓のレポートを集計
+      const tMap = {}, cMap = {};
+      let totalCups = 0;
+      all.forEach(b => {
+        b.items.forEach(item => {
+          if (!item.noCount) {
+            const tk = String(b.tableId);
+            if (!tMap[tk]) tMap[tk] = { tableLabel: b.tableLabel, total: 0, cups: 0 };
+            tMap[tk].total += (item.price||0)*(item.qty||1);
+            tMap[tk].cups  += (item.qty||1);
+          }
+          if (!item.noCount && !item.isGuest && item.castName) {
+            if (!cMap[item.castName]) cMap[item.castName] = { castName: item.castName, revenue: 0, cups: 0, items: [] };
+            cMap[item.castName].revenue += (item.price||0)*(item.qty||1);
+            cMap[item.castName].cups    += (item.qty||1);
+            cMap[item.castName].items.push({ drinkName: item.drinkName, emoji: item.emoji||"🍹", price: item.price||0, qty: item.qty||1, nonAlco: item.nonAlco||false });
+            totalCups += (item.qty||1);
+          }
+        });
+      });
+
+      // レポートを保存（既存があればマージ）
+      const existingSnap = await get(ref(db, `shops/${shopId}/reports/${date}`));
+      const existing = existingSnap.exists() ? existingSnap.val() : null;
+      await set(ref(db, `shops/${shopId}/reports/${date}`), {
+        date,
+        tableReports: Object.values(tMap),
+        castReports: Object.values(cMap),
+        totalCups: existing ? (existing.totalCups||0) + totalCups : totalCups,
+      });
+
+      // batches・archivedをクリア
+      const u = {};
+      if (bs.exists())  Object.keys(bs.val()).forEach(k  => { u[`shops/${shopId}/batches/${k}`]  = null; });
+      if (as_.exists()) Object.keys(as_.val()).forEach(k => { u[`shops/${shopId}/archived/${k}`] = null; });
+      if (Object.keys(u).length > 0) await update(ref(db), u);
+    } catch(e) { console.error("autoResetDay error:", e); }
+  },
   // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
   checkoutTable: async (shopId, tableId) => {
     try {
@@ -1075,6 +1125,32 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const [statsTab, setStatsTab]     = useState("table");
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
+
+  // 03:00に自動リセット
+  useEffect(()=>{
+    const checkReset = async () => {
+      const now = new Date();
+      const h = now.getHours(), m = now.getMinutes();
+      // 03:00〜03:05 の間に1回だけ実行
+      if (h === 3 && m < 5) {
+        const lastReset = localStorage.getItem(`casdori_last_reset_${shopId}`);
+        const today = getBusinessDate();
+        // 前日の日付（03:00時点では前日扱い → getBusinessDateは前日を返す）
+        const yesterday = (()=>{
+          const d = new Date();
+          d.setDate(d.getDate()-1);
+          return d.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+        })();
+        if (lastReset !== yesterday) {
+          await DB.autoResetDay(shopId, yesterday);
+          localStorage.setItem(`casdori_last_reset_${shopId}`, yesterday);
+        }
+      }
+    };
+    checkReset();
+    const timer = setInterval(checkReset, 60 * 1000); // 1分ごとにチェック
+    return () => clearInterval(timer);
+  }, [shopId]);
   const { batches, services, archived } = data;
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
   const allBatches = [...batches, ...(archived||[])];
