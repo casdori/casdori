@@ -111,6 +111,23 @@ const DB = {
 
 function uid() { return Math.random().toString(36).slice(2,9); }
 function nowShort() { return new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}); }
+// 03:00〜翌03:00を1日とする日付文字列を返す
+function getBusinessDate() {
+  const now = new Date();
+  // 03:00より前（深夜）は前日扱い
+  if (now.getHours() < 3) {
+    const prev = new Date(now);
+    prev.setDate(prev.getDate() - 1);
+    return prev.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+  }
+  return now.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+}
+// 1ヶ月前の日付
+function getOneMonthAgo() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return d.toLocaleDateString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+}
 
 function defaultSettings(shopId, shopName) {
   return {
@@ -835,19 +852,25 @@ function CastTerminal({ onExit, settings, shopId }) {
         );})()}
         {cart.length>0 && <button onClick={submit} style={{ marginLeft:"auto", padding:"8px 16px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>✅ {cart.length}件送信</button>}
       </div>
-      {/* このキャストのカート */}
-      {myCartItems.length>0 && (
-        <div style={{ padding:"8px 16px", background:"rgba(232,184,75,0.06)", borderBottom:`1px solid ${C.border}` }}>
-          <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:4 }}>🛒 カート ({myCartItems.length}件)</div>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {myCartItems.map((item,i)=>(
-              <div key={i} style={{ padding:"4px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:11, color:C.gold }}>
-                {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
-              </div>
-            ))}
-          </div>
+      {/* 卓番号バナー＋カート */}
+      <div style={{ background:"rgba(232,184,75,0.1)", borderBottom:`2px solid ${C.goldBorder}`, padding:"10px 16px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom: myCartItems.length>0 ? 8 : 0 }}>
+          <div style={{ fontSize:13, fontWeight:900, color:C.gold }}>🍽️ {tInfo?.label}</div>
+          <div style={{ fontSize:12, color:acol, fontWeight:700 }}>💗 {isGuest?"ゲスト注文":activeCast}</div>
         </div>
-      )}
+        {myCartItems.length>0 && (
+          <div>
+            <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:5 }}>🛒 カート ({myCartItems.length}件)</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {myCartItems.map((item,i)=>(
+                <div key={i} style={{ padding:"5px 12px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, color:C.gold, fontWeight:700 }}>
+                  {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <div style={{ flex:1, padding:"16px", overflowY:"auto" }}>
         {isGuest && (
           <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -1048,7 +1071,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const [data, setData]             = useState({ batches:[], services:[], archived:[] });
   const [tab, setTab]               = useState("kitchen");
   const [detailCast, setDetailCast] = useState(null);
-  const [statsTab, setStatsTab]     = useState("cast");
+  const [detailTable, setDetailTable] = useState(null); // 卓詳細
+  const [statsTab, setStatsTab]     = useState("table");
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
   const { batches, services, archived } = data;
@@ -1078,7 +1102,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   // リアルタイム自動保存（削除時も即反映）
   useEffect(() => {
-    const today = new Date().toISOString().slice(0,10);
+    const today = getBusinessDate();
     const tMap = {};
     allBatches.forEach(b => {
       const k = String(b.tableId);
@@ -1224,18 +1248,44 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                   <div>会計待ちの卓はありません</div>
                 </div>
               ) : tables.map((t,i)=>(
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"16px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}` }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:3 }}>{t.label}</div>
-                    <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯</div>
+                <div key={i} style={{ background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}`, overflow:"hidden" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px" }}>
+                    <button onClick={()=>setDetailTable(detailTable===t.tableId?null:t.tableId)} style={{ flex:1, textAlign:"left", background:"transparent", border:"none", cursor:"pointer", padding:0 }}>
+                      <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:3 }}>{t.label}</div>
+                      <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯　▼ 詳細</div>
+                    </button>
+                    <div style={{ fontSize:20, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
+                    <button onClick={async()=>{
+                      if(!window.confirm(`${t.label} の会計\n¥${t.total.toLocaleString()}\n\nキャストの売上はそのまま残ります`)) return;
+                      await DB.checkoutTable(shopId, t.tableId);
+                      setDetailTable(null);
+                    }} style={{ padding:"10px 16px", borderRadius:12, border:"none", background:"rgba(232,184,75,0.9)", color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14, flexShrink:0 }}>
+                      💴 会計
+                    </button>
                   </div>
-                  <div style={{ fontSize:20, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
-                  <button onClick={async()=>{
-                    if(!window.confirm(`${t.label} の会計\n¥${t.total.toLocaleString()}\n\nキャストの売上はそのまま残ります`)) return;
-                    await DB.checkoutTable(shopId, t.tableId);
-                  }} style={{ padding:"10px 16px", borderRadius:12, border:"none", background:"rgba(232,184,75,0.9)", color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14, flexShrink:0 }}>
-                    💴 会計
-                  </button>
+                  {/* 卓詳細：注文内容 */}
+                  {detailTable===t.tableId && (
+                    <div style={{ borderTop:`1px solid ${C.border}`, padding:"10px 16px" }}>
+                      {batches.filter(b=>String(b.tableId)===String(t.tableId)).sort((a,b)=>a.time>b.time?1:-1).map((batch,bi)=>(
+                        <div key={bi} style={{ marginBottom:10 }}>
+                          <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>🕐 {batch.time}</div>
+                          {batch.items.map((item,ii)=>(
+                            <div key={ii} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", background:"rgba(255,255,255,0.03)", borderRadius:8, marginBottom:4 }}>
+                              <span style={{ fontSize:14 }}>{item.emoji}</span>
+                              <span style={{ fontSize:12, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:40, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
+                              <span style={{ flex:1, fontSize:12 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
+                              <span style={{ fontSize:11, color:C.textDim }}>×{item.qty||1}</span>
+                              {!item.noCount && <span style={{ fontSize:11, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
+                              <button onClick={async()=>{
+                                if(!window.confirm(`「${item.drinkName}」を削除しますか？`)) return;
+                                await DB.removeItemFromBatch(shopId, batch.batchId, ii, batch.items, false);
+                              }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", fontSize:11, flexShrink:0 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ));
             })()}
@@ -1469,14 +1519,19 @@ function SettingsPanel({ settings, shopId, onSave, onExit }) {
 }
 
 function DailyReportPanel({ shopId, onExit }) {
-  const today = new Date().toISOString().slice(0,10);
+  const today = getBusinessDate();
   const [dates, setDates]     = useState([]);
   const [selDate, setSelDate] = useState(today);
   const [report, setReport]   = useState(null);
   const [detail, setDetail]   = useState(null);
 
   useEffect(()=>{
-    DB.getReportIndex(shopId).then(idx=>{ setDates(idx); if(idx.length>0){setSelDate(idx[0]);DB.loadDailyReport(shopId,idx[0]).then(setReport);} });
+    DB.getReportIndex(shopId).then(idx=>{
+      const oneMonthAgo = getOneMonthAgo();
+      const filtered = idx.filter(d => d >= oneMonthAgo);
+      setDates(filtered);
+      if(filtered.length>0){setSelDate(filtered[0]);DB.loadDailyReport(shopId,filtered[0]).then(setReport);}
+    });
   },[shopId]);
 
   function selDay(d) { setSelDate(d); setDetail(null); DB.loadDailyReport(shopId,d).then(setReport); }
