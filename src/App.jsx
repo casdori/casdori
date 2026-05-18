@@ -1446,19 +1446,69 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             )}
           </div>
         )}
-        {tab==="stats" && detailCast && detail && (
+        {tab==="stats" && detailCast && detail && (()=>{
+          const BACK_RATE = 0.3;
+          // 価格別に集計
+          const priceMap = {};
+          detail.rawItems.forEach(item=>{
+            const p = item.price||0;
+            if(!priceMap[p]) priceMap[p]={price:p, cups:0, total:0};
+            priceMap[p].cups  += (item.qty||1);
+            priceMap[p].total += p*(item.qty||1);
+          });
+          const priceGroups = Object.values(priceMap).sort((a,b)=>a.price-b.price);
+          const totalBack = Math.floor(detail.revenue * BACK_RATE);
+
+          return (
           <div>
             <button onClick={()=>setDetailCast(null)} style={{ marginBottom:16, padding:"8px 16px", borderRadius:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
-            <div style={{ padding:"20px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:18, marginBottom:20, textAlign:"center" }}>
-              <div style={{ fontSize:20, fontWeight:900, color:C.pink, marginBottom:8 }}>{detailCast}</div>
-              <div style={{ display:"flex", justifyContent:"center", gap:32 }}>
-                <div><div style={{ fontSize:11, color:C.textDim }}>売上</div><div style={{ fontSize:26, fontWeight:900, color:C.gold }}>¥{detail.revenue.toLocaleString()}</div></div>
-                <div><div style={{ fontSize:11, color:C.textDim }}>杯数</div><div style={{ fontSize:26, fontWeight:900, color:C.pink }}>{detail.cups}杯</div></div>
+
+            {/* ヘッダー */}
+            <div style={{ padding:"20px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:18, marginBottom:16, textAlign:"center" }}>
+              <div style={{ fontSize:22, fontWeight:900, color:C.pink, marginBottom:12 }}>{detailCast}</div>
+              <div style={{ display:"flex", justifyContent:"center", gap:24 }}>
+                <div><div style={{ fontSize:11, color:C.textDim }}>合計売上</div><div style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{detail.revenue.toLocaleString()}</div></div>
+                <div><div style={{ fontSize:11, color:C.textDim }}>合計杯数</div><div style={{ fontSize:24, fontWeight:900, color:C.pink }}>{detail.cups}杯</div></div>
               </div>
             </div>
-            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>🍹 注文明細（削除できます）</div>
+
+            {/* バック合計 */}
+            <div style={{ padding:"16px 20px", background:"rgba(62,207,142,0.12)", border:`1px solid ${C.green}`, borderRadius:16, marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック（30%）</div>
+                <div style={{ fontSize:11, color:C.textDim }}>¥{detail.revenue.toLocaleString()} × 30%</div>
+              </div>
+              <div style={{ fontSize:26, fontWeight:900, color:C.green }}>¥{totalBack.toLocaleString()}</div>
+            </div>
+
+            {/* 価格別内訳 */}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>📊 価格別内訳</div>
+            {priceGroups.map((g,i)=>{
+              const back = Math.floor(g.total * BACK_RATE);
+              return (
+                <div key={i} style={{ padding:"14px 16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                    <div style={{ fontSize:15, fontWeight:800, color:C.gold }}>¥{g.price.toLocaleString()} のドリンク</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:C.pink }}>{g.cups}杯</div>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <div style={{ flex:1, padding:"8px 12px", background:"rgba(232,184,75,0.1)", borderRadius:10, textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>売上</div>
+                      <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{g.total.toLocaleString()}</div>
+                    </div>
+                    <div style={{ flex:1, padding:"8px 12px", background:"rgba(62,207,142,0.1)", borderRadius:10, textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>バック（30%）</div>
+                      <div style={{ fontSize:15, fontWeight:900, color:C.green }}>¥{back.toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 注文明細 */}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, margin:"16px 0 10px" }}>🍹 注文明細（削除できます）</div>
             {detail.rawItems.map((item,i)=>(
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:8, border:`1px solid ${C.border}` }}>
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
                 <span style={{ fontSize:18 }}>{item.emoji||"🍹"}</span>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -1468,7 +1518,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                   <div style={{ fontSize:11, color:C.textDim }}>¥{(item.price||0).toLocaleString()} × {item.qty||1}杯</div>
                 </div>
                 <div style={{ textAlign:"right", marginRight:8 }}>
-                  <div style={{ fontSize:14, fontWeight:900, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>
+                  <div style={{ fontSize:11, color:C.green }}>バック¥{Math.floor((item.price||0)*(item.qty||1)*BACK_RATE).toLocaleString()}</div>
                 </div>
                 <button onClick={async()=>{
                   if(!window.confirm(`「${item.drinkName}」を削除しますか？`)) return;
@@ -1477,7 +1528,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
               </div>
             ))}
           </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
