@@ -65,8 +65,9 @@ const DB = {
     } catch(e){console.error(e);}
   },
   // 日次自動リセット：レポート保存→batches・archivedをクリア
-  // 日次リセット：前日データをレポート保存→batches・archivedをクリア
-  autoResetDay: async (shopId, saveDate) => {
+
+  // 日次締め：全データをレポート保存→batches・archivedをクリア
+  dailyClose: async (shopId, saveDate) => {
     try {
       const [bs, as_] = await Promise.all([
         get(ref(db, `shops/${shopId}/batches`)),
@@ -75,9 +76,6 @@ const DB = {
       const batches  = bs.exists()  ? Object.values(bs.val())  : [];
       const archived = as_.exists() ? Object.values(as_.val()) : [];
       const all = [...batches, ...archived];
-      if (all.length === 0) return; // データなしなら何もしない
-
-      // 集計
       const tMap = {}, cMap = {};
       let totalCups = 0;
       all.forEach(b => {
@@ -97,22 +95,15 @@ const DB = {
           }
         });
       });
-
-      // 前日のレポートに保存
       await set(ref(db, `shops/${shopId}/reports/${saveDate}`), {
-        date: saveDate,
-        tableReports: Object.values(tMap),
-        castReports: Object.values(cMap),
-        totalCups,
+        date: saveDate, tableReports: Object.values(tMap), castReports: Object.values(cMap), totalCups,
       });
-
-      // batches・archivedをクリア
       const u = {};
       if (bs.exists())  Object.keys(bs.val()).forEach(k => { u[`shops/${shopId}/batches/${k}`]  = null; });
       if (as_.exists()) Object.keys(as_.val()).forEach(k => { u[`shops/${shopId}/archived/${k}`] = null; });
       if (Object.keys(u).length > 0) await update(ref(db), u);
-      console.log(`[CASDORI] 日次リセット完了: ${saveDate}`);
-    } catch(e) { console.error("autoResetDay error:", e); }
+      return true;
+    } catch(e) { console.error("dailyClose error:", e); return false; }
   },
   // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
   checkoutTable: async (shopId, tableId) => {
@@ -1174,34 +1165,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
-  // 03:00自動リセット
-  useEffect(()=>{
-    const RESET_KEY = `casdori_reset_${shopId}`;
 
-    const doReset = async () => {
-      const today = getBusinessDate();        // 今日の営業日
-      const yesterday = getBusinessDate(-1);  // 前日の営業日
-      const lastReset = localStorage.getItem(RESET_KEY);
-
-      // 今日すでにリセット済みならスキップ
-      if (lastReset === today) return;
-
-      // 前日のデータをレポートに保存してクリア
-      await DB.autoResetDay(shopId, yesterday);
-      localStorage.setItem(RESET_KEY, today);
-    };
-
-    // 起動時にチェック（前日データが残っていたら即リセット）
-    doReset();
-
-    // 03:00になったら実行（1分ごとに時刻チェック）
-    const timer = setInterval(()=>{
-      const now = new Date();
-      if (now.getHours() === 3 && now.getMinutes() === 0) doReset();
-    }, 60 * 1000);
-
-    return () => clearInterval(timer);
-  }, [shopId]);
   const { batches, services, archived } = data;
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
   const allBatches = [...batches, ...(archived||[])];
@@ -1259,6 +1223,14 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {onReport && <button onClick={onReport} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>📈 履歴</button>}
           {onSettings && <button onClick={onSettings} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>⚙️</button>}
+          <button onClick={async()=>{
+            const saveDate = getBusinessDate();
+            if(!window.confirm("【日次締め】\n" + saveDate + " のデータを履歴に保存して\n集計をリセットします\n\nよろしいですか？")) return;
+            if(!window.confirm("本当にリセットしますか？\n※この操作は取り消せません")) return;
+            const ok = await DB.dailyClose(shopId, saveDate);
+            if(ok) alert("✅ " + saveDate + " の締めが完了しました\n履歴から確認できます");
+            else alert("エラーが発生しました");
+          }} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:"1px solid " + C.gold, background:C.goldDim, color:C.gold, cursor:"pointer", fontWeight:700 }}>🔒 日次締め</button>
           <button onClick={onExit} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>終了</button>
         </div>
       </div>
