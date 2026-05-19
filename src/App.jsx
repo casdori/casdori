@@ -95,9 +95,13 @@ const DB = {
           }
         });
       });
+      // まずレポートを保存
       await set(ref(db, `shops/${shopId}/reports/${saveDate}`), {
         date: saveDate, tableReports: Object.values(tMap), castReports: Object.values(cMap), totalCups,
       });
+      // 保存できたことを確認してからクリア
+      const saved = await get(ref(db, `shops/${shopId}/reports/${saveDate}`));
+      if (!saved.exists()) throw new Error("レポート保存の確認に失敗しました");
       const u = {};
       if (bs.exists())  Object.keys(bs.val()).forEach(k => { u[`shops/${shopId}/batches/${k}`]  = null; });
       if (as_.exists()) Object.keys(as_.val()).forEach(k => { u[`shops/${shopId}/archived/${k}`] = null; });
@@ -1511,9 +1515,13 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 function SettingsPanel({ settings, shopId, onSave, onExit }) {
   const [tab, setTab] = useState("cast");
   const [s, setS]     = useState(()=>JSON.parse(JSON.stringify(settings)));
+  const isFirst = React.useRef(true);
 
-  // 変更時にDBへ自動保存（画面遷移なし）
-  useEffect(() => { DB.saveShopSettings(shopId, s); onSave(s); }, [JSON.stringify(s)]);
+  // 変更時にDBへ自動保存（初回マウント時はスキップ）
+  useEffect(() => {
+    if (isFirst.current) { isFirst.current = false; return; }
+    DB.saveShopSettings(shopId, s); onSave(s);
+  }, [JSON.stringify(s)]);
 
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
