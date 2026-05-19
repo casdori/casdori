@@ -1193,6 +1193,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   // リアルタイム自動保存（削除時も即反映）
   useEffect(() => {
+    // allBatchesが空の場合は保存しない（日次締め後に履歴を空データで上書きするのを防ぐ）
+    if (allBatches.length === 0) return;
     const today = getBusinessDate();
     const tMap = {};
     allBatches.forEach(b => {
@@ -1208,7 +1210,6 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
       cMap2[item.castName].cups    += (item.qty||1);
       cMap2[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
     }));
-    // batches が空でも保存して履歴を最新状態に上書きする
     DB.saveDailyReport(shopId, { date:today, tableReports:Object.values(tMap), castReports:Object.values(cMap2), totalCups });
   }, [batches]);
 
