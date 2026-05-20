@@ -1159,6 +1159,28 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
+  // ドリンク場タブを開いている時だけ通知（キャスト端末側には通知しない）
+  const prevPendingIds = useRef(new Set());
+  useEffect(()=>{
+    if(tab !== "kitchen") {
+      prevPendingIds.current = new Set(pending.map(b=>b.batchId));
+      return;
+    }
+    if(Notification.permission === "default") Notification.requestPermission();
+    if(Notification.permission !== "granted") return;
+    pending.forEach(batch=>{
+      if(!prevPendingIds.current.has(batch.batchId)) {
+        const drinks = batch.items.map(i=>i.drinkName+(i.nonAlco?" ❤️":"")).join("・");
+        new Notification(`🍹 ${batch.tableLabel} から注文`, {
+          body: drinks,
+          icon: "/icon-192.png",
+          tag: batch.batchId,
+        });
+      }
+    });
+    prevPendingIds.current = new Set(pending.map(b=>b.batchId));
+  }, [pending, tab]);
+
 
   const { batches, services, archived } = data;
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
