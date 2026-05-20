@@ -1734,29 +1734,80 @@ function DailyReportPanel({ shopId, onExit }) {
             ))}
           </>
         )}
-        {report && detail && dData && (
-          <>
-            <div style={{ padding:"20px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:18, marginBottom:20, textAlign:"center" }}>
-              <div style={{ fontSize:20, fontWeight:900, color:C.pink, marginBottom:8 }}>{detail}</div>
-              <div style={{ display:"flex", justifyContent:"center", gap:32 }}>
-                <div><div style={{ fontSize:11, color:C.textDim }}>売上</div><div style={{ fontSize:26, fontWeight:900, color:C.gold }}>¥{dData.revenue.toLocaleString()}</div></div>
-                <div><div style={{ fontSize:11, color:C.textDim }}>杯数</div><div style={{ fontSize:26, fontWeight:900, color:C.pink }}>{dData.cups}杯</div></div>
-              </div>
-            </div>
-            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>🍹 ドリンク明細</div>
-            {(()=>{
-              const dm={};
-              (dData.items||[]).forEach(item=>{ const k=item.drinkName+(item.nonAlco?" ❤️":""); if(!dm[k]) dm[k]={name:k,emoji:item.emoji,qty:0,total:0,price:item.price||0}; dm[k].qty+=(item.qty||1); dm[k].total+=(item.price||0)*(item.qty||1); });
-              return Object.values(dm).sort((a,b)=>b.total-a.total).map((d,i)=>(
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:8, border:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:20 }}>{d.emoji}</span>
-                  <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:700, color:C.text }}>{d.name}</div><div style={{ fontSize:12, color:C.textDim }}>¥{d.price.toLocaleString()} × {d.qty}杯</div></div>
-                  <div style={{ textAlign:"right" }}><div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{d.total.toLocaleString()}</div><div style={{ fontSize:11, color:C.textDim }}>{d.qty}杯</div></div>
+        {report && detail && dData && (()=>{
+          const BACK_RATE = 0.3;
+          const priceMap = {};
+          (dData.items||[]).forEach(item=>{
+            const p = item.price||0;
+            if(!priceMap[p]) priceMap[p]={price:p,cups:0,total:0};
+            priceMap[p].cups  += (item.qty||1);
+            priceMap[p].total += p*(item.qty||1);
+          });
+          const priceGroups = Object.values(priceMap).sort((a,b)=>a.price-b.price);
+          const totalBack = Math.floor((dData.revenue||0)*BACK_RATE);
+          return (
+            <>
+              {/* ヘッダー */}
+              <div style={{ padding:"20px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:18, marginBottom:16, textAlign:"center" }}>
+                <div style={{ fontSize:22, fontWeight:900, color:C.pink, marginBottom:12 }}>{detail}</div>
+                <div style={{ display:"flex", justifyContent:"center", gap:24 }}>
+                  <div><div style={{ fontSize:11, color:C.textDim }}>合計売上</div><div style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{(dData.revenue||0).toLocaleString()}</div></div>
+                  <div><div style={{ fontSize:11, color:C.textDim }}>合計杯数</div><div style={{ fontSize:24, fontWeight:900, color:C.pink }}>{dData.cups||0}杯</div></div>
                 </div>
-              ));
-            })()}
-          </>
-        )}
+              </div>
+              {/* 合計バック */}
+              <div style={{ padding:"16px 20px", background:"rgba(62,207,142,0.12)", border:`1px solid ${C.green}`, borderRadius:16, marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div>
+                  <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック（30%）</div>
+                  <div style={{ fontSize:11, color:C.textDim }}>¥{(dData.revenue||0).toLocaleString()} × 30%</div>
+                </div>
+                <div style={{ fontSize:26, fontWeight:900, color:C.green }}>¥{totalBack.toLocaleString()}</div>
+              </div>
+              {/* 価格別内訳 */}
+              <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>📊 価格別内訳</div>
+              {priceGroups.map((g,i)=>{
+                const back = Math.floor(g.total*BACK_RATE);
+                return (
+                  <div key={i} style={{ padding:"14px 16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:8 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:C.gold }}>¥{g.price.toLocaleString()} のドリンク</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:C.pink }}>{g.cups}杯</div>
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <div style={{ flex:1, padding:"8px 12px", background:"rgba(232,184,75,0.1)", borderRadius:10, textAlign:"center" }}>
+                        <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>売上</div>
+                        <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{g.total.toLocaleString()}</div>
+                      </div>
+                      <div style={{ flex:1, padding:"8px 12px", background:"rgba(62,207,142,0.1)", borderRadius:10, textAlign:"center" }}>
+                        <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>バック（30%）</div>
+                        <div style={{ fontSize:15, fontWeight:900, color:C.green }}>¥{back.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {/* ドリンク明細 */}
+              <div style={{ fontSize:12, color:C.textDim, fontWeight:700, margin:"16px 0 10px" }}>🍹 ドリンク明細</div>
+              {(()=>{
+                const dm={};
+                (dData.items||[]).forEach(item=>{ const k=item.drinkName+(item.nonAlco?" ❤️":""); if(!dm[k]) dm[k]={name:k,emoji:item.emoji||"🍹",qty:0,total:0,price:item.price||0}; dm[k].qty+=(item.qty||1); dm[k].total+=(item.price||0)*(item.qty||1); });
+                return Object.values(dm).sort((a,b)=>b.total-a.total).map((d,i)=>(
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:C.bgCard, borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
+                    <span style={{ fontSize:18 }}>{d.emoji}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{d.name}</div>
+                      <div style={{ fontSize:11, color:C.textDim }}>¥{d.price.toLocaleString()} × {d.qty}杯</div>
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:C.gold }}>¥{d.total.toLocaleString()}</div>
+                      <div style={{ fontSize:11, color:C.green }}>バック¥{Math.floor(d.total*BACK_RATE).toLocaleString()}</div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
