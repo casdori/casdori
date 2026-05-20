@@ -55,17 +55,6 @@ const DB = {
   updateServiceStatus: async (shopId, svcId, status) => {
     try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
   },
-  resetTable: async (shopId, tableId) => {
-    try {
-      const [bs,ss] = await Promise.all([get(ref(db,`shops/${shopId}/batches`)),get(ref(db,`shops/${shopId}/services`))]);
-      const u={};
-      if(bs.exists()) Object.entries(bs.val()).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) u[`shops/${shopId}/batches/${k}`]=null; });
-      if(ss.exists()) Object.entries(ss.val()).forEach(([k,v])=>{ if(String(v.tableId)===String(tableId)) u[`shops/${shopId}/services/${k}`]=null; });
-      if(Object.keys(u).length>0) await update(ref(db),u);
-    } catch(e){console.error(e);}
-  },
-  // 日次自動リセット：レポート保存→batches・archivedをクリア
-
   // 日次締め：全データをレポート保存→batches・archivedをクリア
   dailyClose: async (shopId, saveDate) => {
     try {
@@ -1195,27 +1184,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const maxRev = casts.length>0?casts[0].revenue:1;
   const detail = detailCast?casts.find(c=>c.name===detailCast):null;
 
-  // リアルタイム自動保存（削除時も即反映）
-  useEffect(() => {
-    // allBatchesが空の場合は保存しない（日次締め後に履歴を空データで上書きするのを防ぐ）
-    if (allBatches.length === 0) return;
-    const today = getBusinessDate();
-    const tMap = {};
-    allBatches.forEach(b => {
-      const k = String(b.tableId);
-      if (!tMap[k]) tMap[k] = { tableLabel:b.tableLabel, total:0, cups:0 };
-      b.items.forEach(item => { if(!item.noCount){ tMap[k].total+=(item.price||0)*(item.qty||1); tMap[k].cups+=(item.qty||1); } });
-    });
-    const cMap2 = {};
-    allBatches.forEach(b => b.items.forEach(item => {
-      if (item.noCount || !item.castName) return;
-      if (!cMap2[item.castName]) cMap2[item.castName] = { castName:item.castName, revenue:0, cups:0, items:[] };
-      cMap2[item.castName].revenue += (item.price||0)*(item.qty||1);
-      cMap2[item.castName].cups    += (item.qty||1);
-      cMap2[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
-    }));
-    DB.saveDailyReport(shopId, { date:today, tableReports:Object.values(tMap), castReports:Object.values(cMap2), totalCups });
-  }, [batches]);
+
 
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
