@@ -883,29 +883,35 @@ function CastTerminal({ onExit, settings, shopId }) {
   const myCartItems = cart.filter(i => isGuest ? i.isGuest : i.castName === activeCast);
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
-      {/* 卓番号バナー（大きく） */}
-      <div style={{ background:`linear-gradient(135deg,rgba(232,184,75,0.2),rgba(232,184,75,0.08))`, borderBottom:`3px solid ${C.gold}`, padding:"12px 16px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+      {/* 固定ヘッダー：卓番号・キャスト・カート・送信ボタン */}
+      <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:50, background:"rgba(8,5,15,0.98)", borderBottom:`3px solid ${C.gold}`, backdropFilter:"blur(10px)" }}>
+        {/* 卓番号・キャスト名 */}
+        <div style={{ background:`linear-gradient(135deg,rgba(232,184,75,0.18),rgba(232,184,75,0.06))`, padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13, flexShrink:0 }}>← 戻る</button>
           <div style={{ flex:1, textAlign:"center" }}>
-            <div style={{ fontSize:28, fontWeight:900, color:C.gold, lineHeight:1 }}>🍽️ {tInfo?.label}</div>
-            <div style={{ fontSize:13, color:acol, fontWeight:700, marginTop:3 }}>{isGuest?"🥂 ゲスト注文":`💗 ${activeCast}`}</div>
+            <div style={{ fontSize:26, fontWeight:900, color:C.gold, lineHeight:1 }}>🍽️ {tInfo?.label}</div>
+            <div style={{ fontSize:13, color:acol, fontWeight:700, marginTop:2 }}>{isGuest?"🥂 ゲスト注文":`💗 ${activeCast}`}</div>
           </div>
         </div>
-        {/* カート表示 */}
+        {/* カート＋送信ボタン */}
         {myCartItems.length>0 && (
-          <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.goldBorder}` }}>
+          <div style={{ padding:"8px 16px", borderTop:`1px solid ${C.goldBorder}`, background:"rgba(232,184,75,0.06)" }}>
             <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:5 }}>🛒 カート ({myCartItems.length}件)</div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
               {myCartItems.map((item,i)=>(
                 <div key={i} style={{ padding:"4px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:11, color:C.gold, fontWeight:700 }}>
                   {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
                 </div>
               ))}
             </div>
+            <button onClick={submit} style={{ width:"100%", padding:"14px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:16, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
+              ✅ {myCartItems.length}件を送信する
+            </button>
           </div>
         )}
       </div>
+      {/* ヘッダーの高さ分スペースを確保（カートあり=約190px、なし=約80px） */}
+      <div style={{ height: myCartItems.length>0 ? 195 : 85 }} />
       <div style={{ flex:1, padding:"16px", overflowY:"auto" }}>
         {isGuest && (
           <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -969,22 +975,15 @@ function CastTerminal({ onExit, settings, shopId }) {
         )}
       </div>
       <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
-        {/* いつものボタン（キャスト専用・お気に入り設定済みの場合のみ表示） */}
+        {/* いつものボタン */}
         {!isGuest && (()=>{ const favs=(settings?.castFavs||{})[activeCast]||[]; return favs.length>0 && (
           <button onClick={()=>setFavModal(true)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:15, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
             ⭐ いつもの（{favs.length}件）
           </button>
         );})()}
-        <div style={{ display:"flex", gap:8, marginBottom: cart.length>0 ? 8 : 0 }}>
-          <button onClick={()=>setMsgModal(true)} style={{ flex:1, padding:"12px 16px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, cursor:"pointer", fontSize:13 }}>
-            📝 伝達事項
-          </button>
-        </div>
-        {cart.length>0 && (
-          <button onClick={submit} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 20px rgba(62,207,142,0.4)" }}>
-            ✅ {cart.length}件を送信する
-          </button>
-        )}
+        <button onClick={()=>setMsgModal(true)} style={{ width:"100%", padding:"12px 16px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, cursor:"pointer", fontSize:13 }}>
+          📝 伝達事項
+        </button>
       </div>
       {/* 伝達事項モーダル */}
       {msgModal && (
