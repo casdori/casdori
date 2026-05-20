@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ══════════════════════════════════════════════════════════════
 // Firebase設定
@@ -883,27 +883,22 @@ function CastTerminal({ onExit, settings, shopId }) {
   const myCartItems = cart.filter(i => isGuest ? i.isGuest : i.castName === activeCast);
   return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
-      <div style={{ display:"flex", alignItems:"center", padding:"14px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", gap:10 }}>
-        <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
-        <div style={{ fontWeight:800, color:acol, fontSize:15 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}</div>
-        <div style={{ padding:"3px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, fontWeight:700, color:C.gold }}>{tInfo?.label}</div>
-        {!isGuest && (()=>{const favs=(settings?.castFavs||{})[activeCast]||[]; return favs.length>0 && (
-          <button onClick={()=>setFavModal(true)} style={{ padding:"6px 14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:13 }}>⭐ いつもの</button>
-        );})()}
-        {cart.length>0 && <button onClick={submit} style={{ marginLeft:"auto", padding:"8px 16px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>✅ {cart.length}件送信</button>}
-      </div>
-      {/* 卓番号バナー＋カート */}
-      <div style={{ background:"rgba(232,184,75,0.1)", borderBottom:`2px solid ${C.goldBorder}`, padding:"10px 16px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom: myCartItems.length>0 ? 8 : 0 }}>
-          <div style={{ fontSize:13, fontWeight:900, color:C.gold }}>🍽️ {tInfo?.label}</div>
-          <div style={{ fontSize:12, color:acol, fontWeight:700 }}>💗 {isGuest?"ゲスト注文":activeCast}</div>
+      {/* 卓番号バナー（大きく） */}
+      <div style={{ background:`linear-gradient(135deg,rgba(232,184,75,0.2),rgba(232,184,75,0.08))`, borderBottom:`3px solid ${C.gold}`, padding:"12px 16px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setPhase("castSelect")} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13, flexShrink:0 }}>← 戻る</button>
+          <div style={{ flex:1, textAlign:"center" }}>
+            <div style={{ fontSize:28, fontWeight:900, color:C.gold, lineHeight:1 }}>🍽️ {tInfo?.label}</div>
+            <div style={{ fontSize:13, color:acol, fontWeight:700, marginTop:3 }}>{isGuest?"🥂 ゲスト注文":`💗 ${activeCast}`}</div>
+          </div>
         </div>
+        {/* カート表示 */}
         {myCartItems.length>0 && (
-          <div>
+          <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.goldBorder}` }}>
             <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:5 }}>🛒 カート ({myCartItems.length}件)</div>
             <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
               {myCartItems.map((item,i)=>(
-                <div key={i} style={{ padding:"5px 12px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:12, color:C.gold, fontWeight:700 }}>
+                <div key={i} style={{ padding:"4px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:11, color:C.gold, fontWeight:700 }}>
                   {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
                 </div>
               ))}
@@ -974,11 +969,16 @@ function CastTerminal({ onExit, settings, shopId }) {
         )}
       </div>
       <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
+        {/* いつものボタン（キャスト専用・お気に入り設定済みの場合のみ表示） */}
+        {!isGuest && (()=>{ const favs=(settings?.castFavs||{})[activeCast]||[]; return favs.length>0 && (
+          <button onClick={()=>setFavModal(true)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:15, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            ⭐ いつもの（{favs.length}件）
+          </button>
+        );})()}
         <div style={{ display:"flex", gap:8, marginBottom: cart.length>0 ? 8 : 0 }}>
-          <button onClick={()=>setMsgModal(true)} style={{ padding:"12px 16px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, cursor:"pointer", fontSize:13, flexShrink:0 }}>
+          <button onClick={()=>setMsgModal(true)} style={{ flex:1, padding:"12px 16px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, cursor:"pointer", fontSize:13 }}>
             📝 伝達事項
           </button>
-          {cart.length===0 && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:C.textDim, fontSize:13 }}>👆 ドリンクをタップして選択</div>}
         </div>
         {cart.length>0 && (
           <button onClick={submit} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 20px rgba(62,207,142,0.4)" }}>
@@ -1484,7 +1484,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 function SettingsPanel({ settings, shopId, onSave, onExit }) {
   const [tab, setTab] = useState("cast");
   const [s, setS]     = useState(()=>JSON.parse(JSON.stringify(settings)));
-  const isFirst = React.useRef(true);
+  const isFirst = useRef(true);
 
   // 変更時にDBへ自動保存（初回マウント時はスキップ）
   useEffect(() => {
