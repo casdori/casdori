@@ -1159,13 +1159,21 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
-  // ドリンク場タブを開いている時だけ通知（キャスト端末側には通知しない）
+  const { batches, services, archived } = data;
+  // batches（会計前）+ archived（会計済み）を合算してキャスト集計
+  const allBatches = [...batches, ...(archived||[])];
+  const pending  = batches.filter(b=>b.status==="pending");
+  const done     = batches.filter(b=>b.status==="done");
+  const pendSvc  = services.filter(s=>s.status==="pending");
+
+  // ドリンク場タブを開いている時だけ通知（pendingの定義後に配置）
   const prevPendingIds = useRef(new Set());
   useEffect(()=>{
     if(tab !== "kitchen") {
       prevPendingIds.current = new Set(pending.map(b=>b.batchId));
       return;
     }
+    if(typeof Notification === "undefined") return; // 非対応ブラウザは無視
     if(Notification.permission === "default") Notification.requestPermission();
     if(Notification.permission !== "granted") return;
     pending.forEach(batch=>{
@@ -1180,14 +1188,6 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
     });
     prevPendingIds.current = new Set(pending.map(b=>b.batchId));
   }, [pending, tab]);
-
-
-  const { batches, services, archived } = data;
-  // batches（会計前）+ archived（会計済み）を合算してキャスト集計
-  const allBatches = [...batches, ...(archived||[])];
-  const pending  = batches.filter(b=>b.status==="pending");
-  const done     = batches.filter(b=>b.status==="done");
-  const pendSvc  = services.filter(s=>s.status==="pending");
 
   const castMap = {};
   let totalSales=0, totalCups=0;
