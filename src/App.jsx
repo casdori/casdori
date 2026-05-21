@@ -1121,8 +1121,9 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
     const saveYesterdayReport = async () => {
       const yesterday = getBusinessDate(-1);
       const today     = getBusinessDate();
-      const SAVE_KEY  = `casdori_saved_${shopId}_${yesterday}`;
-      if(localStorage.getItem(SAVE_KEY)) return; // 保存済みならスキップ
+      // Firebaseで保存済みか確認（全端末共有・localStorage非依存）
+      const existSnap = await get(ref(db, `shops/${shopId}/reports/${yesterday}`));
+      if(existSnap.exists()) return; // 保存済みならスキップ
       try {
         const [bs, as_] = await Promise.all([
           get(ref(db, `shops/${shopId}/batches`)),
@@ -1132,7 +1133,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
           ...( bs.exists() ? Object.values(bs.val()) : []),
           ...(as_.exists() ? Object.values(as_.val()): []),
         ].filter(b => b.businessDate === yesterday);
-        if(allB.length === 0) { localStorage.setItem(SAVE_KEY,"1"); return; }
+        if(allB.length === 0) return; // データなしならスキップ
         const tMap={}, cMap={};
         let totalCups=0;
         allB.forEach(b=>b.items.forEach(item=>{
@@ -1153,7 +1154,6 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         await update(ref(db),{[`shops/${shopId}/reports/${yesterday}`]:{
           date:yesterday, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
         }});
-        localStorage.setItem(SAVE_KEY,"1");
       } catch(e){ console.error("auto save report error:",e); }
     };
     // 起動時にチェック
@@ -1169,8 +1169,9 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const { batches, services, archived } = data;
   const today = getBusinessDate();
   // 今日の営業日のデータだけフィルター
-  const todayBatches  = batches.filter(b => !b.businessDate || b.businessDate === today);
-  const todayArchived = (archived||[]).filter(b => !b.businessDate || b.businessDate === today);
+  // businessDateが今日と一致するデータのみ表示（未設定データは除外）
+  const todayBatches  = batches.filter(b => b.businessDate === today);
+  const todayArchived = (archived||[]).filter(b => b.businessDate === today);
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
   const allBatches = [...todayBatches, ...todayArchived];
   const pending  = todayBatches.filter(b=>b.status==="pending");
