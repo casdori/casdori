@@ -29,7 +29,7 @@ const DB = {
     try { await set(ref(db,`shops/${id}/settings`), s); } catch(e){console.error(e);}
   },
   saveDailyReport: async (id, r) => {
-    try { await set(ref(db,`shops/${id}/reports/${r.date}`), r); } catch(e){console.error(e);}
+    try { await update(ref(db), { [`shops/${id}/reports/${r.date}`]: r }); } catch(e){console.error(e);}
   },
   getReportIndex: async (id) => {
     try { const s=await get(ref(db,`shops/${id}/reports`)); return s.exists()?Object.keys(s.val()).sort().reverse():[]; } catch { return []; }
@@ -44,7 +44,7 @@ const DB = {
     try { await set(ref(db,`shopRegistry/${s.shopId}`), s); } catch(e){console.error(e);}
   },
   addBatch: async (shopId, batch) => {
-    try { await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), batch); } catch(e){console.error(e);}
+    try { await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), {...batch, businessDate: getBusinessDate()}); } catch(e){console.error(e);}
   },
   updateBatchStatus: async (shopId, batchId, status) => {
     try { await update(ref(db,`shops/${shopId}/batches/${batchId}`),{status}); } catch(e){console.error(e);}
@@ -54,49 +54,6 @@ const DB = {
   },
   updateServiceStatus: async (shopId, svcId, status) => {
     try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
-  },
-  // 日次締め：全データをレポート保存→batches・archivedをクリア
-  dailyClose: async (shopId, saveDate) => {
-    try {
-      const [bs, as_] = await Promise.all([
-        get(ref(db, `shops/${shopId}/batches`)),
-        get(ref(db, `shops/${shopId}/archived`)),
-      ]);
-      const batches  = bs.exists()  ? Object.values(bs.val())  : [];
-      const archived = as_.exists() ? Object.values(as_.val()) : [];
-      const all = [...batches, ...archived];
-      const tMap = {}, cMap = {};
-      let totalCups = 0;
-      all.forEach(b => {
-        b.items.forEach(item => {
-          if (!item.noCount) {
-            const tk = String(b.tableId);
-            if (!tMap[tk]) tMap[tk] = { tableLabel: b.tableLabel, total: 0, cups: 0 };
-            tMap[tk].total += (item.price||0)*(item.qty||1);
-            tMap[tk].cups  += (item.qty||1);
-          }
-          if (!item.noCount && !item.isGuest && item.castName) {
-            if (!cMap[item.castName]) cMap[item.castName] = { castName: item.castName, revenue: 0, cups: 0, items: [] };
-            cMap[item.castName].revenue += (item.price||0)*(item.qty||1);
-            cMap[item.castName].cups    += (item.qty||1);
-            cMap[item.castName].items.push({ drinkName: item.drinkName, emoji: item.emoji||"🍹", price: item.price||0, qty: item.qty||1, nonAlco: item.nonAlco||false });
-            totalCups += (item.qty||1);
-          }
-        });
-      });
-      // まずレポートを保存
-      await set(ref(db, `shops/${shopId}/reports/${saveDate}`), {
-        date: saveDate, tableReports: Object.values(tMap), castReports: Object.values(cMap), totalCups,
-      });
-      // 保存できたことを確認してからクリア
-      const saved = await get(ref(db, `shops/${shopId}/reports/${saveDate}`));
-      if (!saved.exists()) throw new Error("レポート保存の確認に失敗しました");
-      const u = {};
-      if (bs.exists())  Object.keys(bs.val()).forEach(k => { u[`shops/${shopId}/batches/${k}`]  = null; });
-      if (as_.exists()) Object.keys(as_.val()).forEach(k => { u[`shops/${shopId}/archived/${k}`] = null; });
-      if (Object.keys(u).length > 0) await update(ref(db), u);
-      return true;
-    } catch(e) { console.error("dailyClose error:", e); return false; }
   },
   // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
   checkoutTable: async (shopId, tableId) => {
@@ -1159,11 +1116,65 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
+  // 03:00に前日分のレポートを自動保存（削除はしない）
+  useEffect(()=>{
+    const saveYesterdayReport = async () => {
+      const yesterday = getBusinessDate(-1);
+      const today     = getBusinessDate();
+      const SAVE_KEY  = `casdori_saved_${shopId}_${yesterday}`;
+      if(localStorage.getItem(SAVE_KEY)) return; // 保存済みならスキップ
+      try {
+        const [bs, as_] = await Promise.all([
+          get(ref(db, `shops/${shopId}/batches`)),
+          get(ref(db, `shops/${shopId}/archived`)),
+        ]);
+        const allB = [
+          ...( bs.exists() ? Object.values(bs.val()) : []),
+          ...(as_.exists() ? Object.values(as_.val()): []),
+        ].filter(b => b.businessDate === yesterday);
+        if(allB.length === 0) { localStorage.setItem(SAVE_KEY,"1"); return; }
+        const tMap={}, cMap={};
+        let totalCups=0;
+        allB.forEach(b=>b.items.forEach(item=>{
+          if(!item.noCount){
+            const tk=String(b.tableId);
+            if(!tMap[tk]) tMap[tk]={tableLabel:b.tableLabel,total:0,cups:0};
+            tMap[tk].total+=(item.price||0)*(item.qty||1);
+            tMap[tk].cups+=(item.qty||1);
+          }
+          if(!item.noCount&&!item.isGuest&&item.castName){
+            if(!cMap[item.castName]) cMap[item.castName]={castName:item.castName,revenue:0,cups:0,items:[]};
+            cMap[item.castName].revenue+=(item.price||0)*(item.qty||1);
+            cMap[item.castName].cups+=(item.qty||1);
+            cMap[item.castName].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false});
+            totalCups+=(item.qty||1);
+          }
+        }));
+        await update(ref(db),{[`shops/${shopId}/reports/${yesterday}`]:{
+          date:yesterday, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
+        }});
+        localStorage.setItem(SAVE_KEY,"1");
+      } catch(e){ console.error("auto save report error:",e); }
+    };
+    // 起動時にチェック
+    saveYesterdayReport();
+    // 03:00に毎日実行
+    const timer = setInterval(()=>{
+      const now = new Date();
+      if(now.getHours()===3 && now.getMinutes()===0) saveYesterdayReport();
+    }, 60*1000);
+    return ()=>clearInterval(timer);
+  }, [shopId]);
+
   const { batches, services, archived } = data;
+  const today = getBusinessDate();
+  // 今日の営業日のデータだけフィルター
+  const todayBatches  = batches.filter(b => !b.businessDate || b.businessDate === today);
+  const todayArchived = (archived||[]).filter(b => !b.businessDate || b.businessDate === today);
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
-  const allBatches = [...batches, ...(archived||[])];
-  const pending  = batches.filter(b=>b.status==="pending");
-  const done     = batches.filter(b=>b.status==="done");
+  const allBatches = [...todayBatches, ...todayArchived];
+  const pending  = todayBatches.filter(b=>b.status==="pending");
+  const done     = todayBatches.filter(b=>b.status==="done");
   const pendSvc  = services.filter(s=>s.status==="pending");
 
   // ドリンク場タブを開いている時だけ通知（pendingの定義後に配置）
@@ -1220,14 +1231,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
           {onReport && <button onClick={onReport} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>📈 履歴</button>}
           {onSettings && <button onClick={onSettings} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>⚙️</button>}
-          <button onClick={async()=>{
-            const saveDate = getBusinessDate();
-            if(!window.confirm("【日次締め】\n" + saveDate + " のデータを履歴に保存して\n集計をリセットします\n\nよろしいですか？")) return;
-            if(!window.confirm("本当にリセットしますか？\n※この操作は取り消せません")) return;
-            const ok = await DB.dailyClose(shopId, saveDate);
-            if(ok) alert("✅ " + saveDate + " の締めが完了しました\n履歴から確認できます");
-            else alert("エラーが発生しました");
-          }} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:"1px solid " + C.gold, background:C.goldDim, color:C.gold, cursor:"pointer", fontWeight:700 }}>🔒 日次締め</button>
+
           <button onClick={onExit} style={{ padding:"5px 10px", borderRadius:14, fontSize:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer" }}>終了</button>
         </div>
       </div>
@@ -1332,7 +1336,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             {/* 卓別合計タブ */}
             {statsTab==="table" && (()=>{
               const tMap={};
-              batches.forEach(b=>{
+              todayBatches.forEach(b=>{
                 const k=String(b.tableId);
                 if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0};
                 b.items.forEach(item=>{if(!item.noCount){tMap[k].total+=(item.price||0)*(item.qty||1);tMap[k].cups+=(item.qty||1);}});
@@ -1362,7 +1366,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                   {/* 卓詳細：注文内容 */}
                   {detailTable===t.tableId && (
                     <div style={{ borderTop:`1px solid ${C.border}`, padding:"10px 16px" }}>
-                      {batches.filter(b=>String(b.tableId)===String(t.tableId)).sort((a,b)=>a.time>b.time?1:-1).map((batch,bi)=>(
+                      {todayBatches.filter(b=>String(b.tableId)===String(t.tableId)).sort((a,b)=>a.time>b.time?1:-1).map((batch,bi)=>(
                         <div key={bi} style={{ marginBottom:10 }}>
                           <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>🕐 {batch.time}</div>
                           {batch.items.map((item,ii)=>(
