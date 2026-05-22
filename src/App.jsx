@@ -1866,7 +1866,7 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
 
   // 残り時間計算：60分 - 経過時間（延長分も加算）
   function elapsed(sess) {
-    if(!sess) return { sec:3600, m:60, s:0, isOver:false, text:"60:00", elapsedSec:0 };
+    if(!sess) return { sec:3600, m:60, s:0, isOver:false, text:"60:00", elapsedSec:0, status:"safe" };
     const elapsedSec = Math.floor((now - sess.startedAt)/1000);
     // 持ち時間：基本60分 + 延長合計
     const extendMin = (sess.extensions||[]).reduce((sum,e)=>sum+(e.duration||0),0);
@@ -1877,11 +1877,22 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
     const m = Math.floor(absSec/60);
     const s = absSec%60;
     const sign = isOver ? "-" : "";
-    return { sec:remainSec, m, s, isOver, elapsedSec,
+    // 状態判定：60〜15分=safe(白) / 15分未満=warn(オレンジ) / 0分以下=danger(赤)
+    let status;
+    if(isOver)                  status = "danger";
+    else if(remainSec < 15*60)  status = "warn";
+    else                        status = "safe";
+    return { sec:remainSec, m, s, isOver, elapsedSec, status,
       text: `${sign}${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` };
   }
+  // ステータスから色を取得
+  function getStatusColors(status) {
+    if(status === "danger") return { color: C.red,  dim: C.redDim,  border: C.red,  label:"⚠️ 時間超過しています" };
+    if(status === "warn")   return { color: C.gold, dim: C.goldDim, border: C.gold, label:"⚠️ 残り15分以内" };
+    return { color: "#fff", dim: "rgba(255,255,255,0.06)", border: "rgba(255,255,255,0.2)", label:"⏱ 残り時間" };
+  }
 
-  // 料金計算
+  // 料金計算（料金種別を明記して内訳を詳細表示）
   function calcSessionTotal(sess) {
     if(!sess) return { subtotal:0, service:0, total:0, breakdown:[] };
     const isVIP = String(sess.tableId).startsWith("vip");
@@ -1890,36 +1901,63 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
     let subtotal = 0;
 
     if(isVIP) {
-      // VIP料金（人数で自動判定）
       const vipPrice = totalPeople >= 5 ? PRICES.vipLarge60 : PRICES.vipBase60;
-      breakdown.push({ label: `VIPルーム 60分（${totalPeople}名）`, amount: vipPrice });
+      const vipType  = totalPeople >= 5 ? "5名以上" : "4名以下";
+      breakdown.push({ 
+        label: `VIPルーム 60分（${vipType}）`,
+        detail: `${totalPeople}名 × ¥${vipPrice.toLocaleString()}`,
+        amount: vipPrice 
+      });
       subtotal += vipPrice;
     } else {
-      // 通常席：男女別
+      // 男性
       if(sess.male > 0) {
-        const price = sess.isApp ? (sess.appHappy ? PRICES.male.appHappy : PRICES.male.app) : PRICES.male.normal;
-        breakdown.push({ label: `男性 60分 × ${sess.male}名`, amount: price * sess.male, unit: price });
+        let price, type;
+        if(sess.isApp && sess.appHappy)      { price = PRICES.male.appHappy; type = "アプリ・ハッピーアワー"; }
+        else if(sess.isApp)                  { price = PRICES.male.app;      type = "アプリ会員"; }
+        else                                 { price = PRICES.male.normal;   type = "通常"; }
+        breakdown.push({
+          label: `男性 60分（${type}）`,
+          detail: `¥${price.toLocaleString()} × ${sess.male}名`,
+          amount: price * sess.male
+        });
         subtotal += price * sess.male;
       }
+      // 女性
       if(sess.female > 0) {
         const price = sess.isApp ? PRICES.female.app : PRICES.female.normal;
-        breakdown.push({ label: `女性 60分 × ${sess.female}名`, amount: price * sess.female, unit: price });
+        const type  = sess.isApp ? "アプリ会員" : "通常";
+        breakdown.push({
+          label: `女性 60分（${type}）`,
+          detail: `¥${price.toLocaleString()} × ${sess.female}名`,
+          amount: price * sess.female
+        });
         subtotal += price * sess.female;
       }
     }
 
     // 延長
-    (sess.extensions||[]).forEach((ext,i)=>{
+    (sess.extensions||[]).forEach((ext)=>{
+      const isApp = sess.isApp;
       const price = ext.duration === 30
-        ? (sess.isApp ? PRICES.extend30.app : PRICES.extend30.normal)
-        : (sess.isApp ? PRICES.extend60.app : PRICES.extend60.normal);
-      breakdown.push({ label: `延長${ext.duration}分（${ext.time}）`, amount: price });
+        ? (isApp ? PRICES.extend30.app : PRICES.extend30.normal)
+        : (isApp ? PRICES.extend60.app : PRICES.extend60.normal);
+      const type = isApp ? "アプリ会員" : "通常";
+      breakdown.push({
+        label: `延長 ${ext.duration}分（${type}）`,
+        detail: `🕐 ${ext.time}　¥${price.toLocaleString()}`,
+        amount: price
+      });
       subtotal += price;
     });
 
     // 指名
     (sess.nominations||[]).forEach(nom=>{
-      breakdown.push({ label: `指名（${nom.castName}）60分`, amount: PRICES.nominate60 });
+      breakdown.push({
+        label: `指名 60分（${nom.castName}）`,
+        detail: `🕐 ${nom.time}　¥${PRICES.nominate60.toLocaleString()}`,
+        amount: PRICES.nominate60
+      });
       subtotal += PRICES.nominate60;
     });
 
@@ -1927,7 +1965,7 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
     return { subtotal, service, total: subtotal + service, breakdown };
   }
 
-  // 卓のドリンク売上
+  // 卓のドリンク売上（税抜き）
   function getDrinkTotal(tableId) {
     let total = 0;
     todayBatches.filter(b=>String(b.tableId)===String(tableId)).forEach(b=>{
@@ -1936,6 +1974,10 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
       });
     });
     return total;
+  }
+  // ドリンク代税込（10%加算）
+  function getDrinkTaxIncluded(tableId) {
+    return Math.floor(getDrinkTotal(tableId) * 1.10);
   }
 
   // 卓設定モーダル：人数入力
@@ -1961,15 +2003,15 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
           const calc = calcSessionTotal(sess);
           const drink = getDrinkTotal(t.id);
           const el = sess ? elapsed(sess) : null;
-          const isOver60 = el && el.isOver;
+          const sc = sess ? getStatusColors(el.status) : null;
           return (
-            <button key={t.id} onClick={()=>setSelTable(t)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${sess?(isOver60?C.red:C.gold):C.border}`, background:sess?(isOver60?C.redDim:C.goldDim):C.bgCard, cursor:"pointer", textAlign:"left" }}>
+            <button key={t.id} onClick={()=>setSelTable(t)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${sess?sc.border:C.border}`, background:sess?sc.dim:C.bgCard, cursor:"pointer", textAlign:"left" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:sess?6:0 }}>
-                <span style={{ fontSize:16, fontWeight:900, color:sess?(isOver60?C.red:C.gold):C.textDim, minWidth:60 }}>{t.label}</span>
+                <span style={{ fontSize:16, fontWeight:900, color:sess?sc.color:C.textDim, minWidth:60 }}>{t.label}</span>
                 {sess ? (
                   <>
                     <span style={{ fontSize:13, color:C.text }}>👨{sess.male} 👩{sess.female}{sess.isApp&&" 📱"}</span>
-                    <span style={{ marginLeft:"auto", fontSize:18, fontWeight:900, fontFamily:"monospace", color:isOver60?C.red:C.gold }}>{el.text}</span>
+                    <span style={{ marginLeft:"auto", fontSize:18, fontWeight:900, fontFamily:"monospace", color:sc.color }}>{el.text}</span>
                   </>
                 ) : (
                   <span style={{ marginLeft:"auto", fontSize:12, color:C.textDim }}>空席 →</span>
@@ -1987,8 +2029,8 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
                     </div>
                   )}
                   <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
-                    <span style={{ color:C.textDim }}>セット ¥{calc.total.toLocaleString()} ／ ドリンク ¥{drink.toLocaleString()}</span>
-                    <span style={{ color:C.gold, fontWeight:800 }}>合計 ¥{(calc.total+drink).toLocaleString()}</span>
+                    <span style={{ color:C.textDim }}>セット ¥{calc.subtotal.toLocaleString()} ／ ドリンク ¥{drink.toLocaleString()}</span>
+                    <span style={{ color:C.gold, fontWeight:800 }}>合計 ¥{(calc.subtotal+drink+Math.floor((calc.subtotal+drink)*0.10)).toLocaleString()}</span>
                   </div>
                 </>
               )}
@@ -2103,6 +2145,11 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
   const drink = getDrinkTotal(table.id);
   const el = elapsed(session);
   const isOver60 = el.isOver;
+  // 色判定
+  let sc;
+  if(el.status === "danger")    sc = { color: C.red,  dim: C.redDim,  border: C.red,  label:"⚠️ 時間超過しています" };
+  else if(el.status === "warn") sc = { color: C.gold, dim: C.goldDim, border: C.gold, label:"⚠️ 残り15分以内" };
+  else                          sc = { color: "#fff", dim: "rgba(255,255,255,0.06)", border: "rgba(255,255,255,0.2)", label:"⏱ 残り時間" };
 
   async function addExtension(duration) {
     const newSess = {...session, extensions:[...(session.extensions||[]), { duration, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
@@ -2125,38 +2172,52 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
     <div style={{ padding:"16px" }}>
       <button onClick={onClose} style={{ marginBottom:10, padding:"6px 14px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
       {/* タイマー */}
-      <div style={{ padding:"20px", background:isOver60?C.redDim:C.goldDim, border:`2px solid ${isOver60?C.red:C.gold}`, borderRadius:18, marginBottom:14, textAlign:"center" }}>
-        <div style={{ fontSize:18, fontWeight:900, color:isOver60?C.red:C.gold, marginBottom:6 }}>{table.label}</div>
-        <div style={{ fontSize:44, fontWeight:900, color:isOver60?C.red:C.gold, fontFamily:"monospace", lineHeight:1 }}>{el.text}</div>
-        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>{isOver60?"⚠️ 時間超過しています":"⏱ 残り時間"}</div>
+      <div style={{ padding:"20px", background:sc.dim, border:`2px solid ${sc.border}`, borderRadius:18, marginBottom:14, textAlign:"center" }}>
+        <div style={{ fontSize:18, fontWeight:900, color:sc.color, marginBottom:6 }}>{table.label}</div>
+        <div style={{ fontSize:44, fontWeight:900, color:sc.color, fontFamily:"monospace", lineHeight:1 }}>{el.text}</div>
+        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>{sc.label}</div>
         <div style={{ fontSize:13, color:C.text, marginTop:8 }}>👨{session.male} 👩{session.female}{session.isApp&&" 📱アプリ"}{session.appHappy&&" 🌅"}</div>
       </div>
       {/* 内訳 */}
       <div style={{ padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:14 }}>
         <div style={{ fontSize:11, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 料金内訳</div>
         {calc.breakdown.map((b,i)=>(
-          <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"4px 0", color:C.text }}>
-            <span>{b.label}</span>
-            <span style={{ color:C.gold, fontWeight:700 }}>¥{b.amount.toLocaleString()}</span>
+          <div key={i} style={{ padding:"8px 0", borderBottom: i<calc.breakdown.length-1?`1px solid ${C.border}`:"none" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{b.label}</span>
+              <span style={{ fontSize:14, fontWeight:800, color:C.gold }}>¥{b.amount.toLocaleString()}</span>
+            </div>
+            {b.detail && <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>{b.detail}</div>}
           </div>
         ))}
-        <div style={{ borderTop:`1px dashed ${C.border}`, paddingTop:6, marginTop:6 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"2px 0" }}>
+        {/* ドリンク代（税込表示） */}
+        {drink > 0 && (()=>{
+          const drinkTax = Math.floor(drink*0.10);
+          const drinkInc = drink + drinkTax;
+          return (
+            <div style={{ padding:"8px 0", borderTop:`1px solid ${C.border}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize:13, fontWeight:700, color:C.text }}>🍹 ドリンク代</span>
+                <span style={{ fontSize:14, fontWeight:800, color:C.gold }}>¥{drinkInc.toLocaleString()}</span>
+              </div>
+              <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>¥{drink.toLocaleString()} + サービス料 ¥{drinkTax.toLocaleString()}</div>
+            </div>
+          );
+        })()}
+        {/* セット小計・サービス料・合計 */}
+        <div style={{ borderTop:`2px dashed ${C.border}`, marginTop:8, paddingTop:8 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:C.textDim, padding:"3px 0" }}>
             <span>セット小計</span>
             <span>¥{calc.subtotal.toLocaleString()}</span>
           </div>
-          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"2px 0" }}>
-            <span>サービス料 10%</span>
-            <span>¥{calc.service.toLocaleString()}</span>
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"4px 0", borderTop:`1px dashed ${C.border}`, marginTop:4 }}>
-            <span>ドリンク代</span>
-            <span>¥{drink.toLocaleString()}</span>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:C.textDim, padding:"3px 0" }}>
+            <span>セット サービス料 10%</span>
+            <span>¥{Math.floor(calc.subtotal*0.10).toLocaleString()}</span>
           </div>
         </div>
-        <div style={{ borderTop:`2px solid ${C.gold}`, marginTop:8, paddingTop:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:14, fontWeight:800, color:C.gold }}>合計</span>
-          <span style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{(calc.total+drink).toLocaleString()}</span>
+        <div style={{ borderTop:`2px solid ${C.gold}`, marginTop:8, paddingTop:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:14, fontWeight:800, color:C.gold }}>合計（税込）</span>
+          <span style={{ fontSize:26, fontWeight:900, color:C.gold }}>¥{(calc.subtotal+drink+Math.floor((calc.subtotal+drink)*0.10)).toLocaleString()}</span>
         </div>
       </div>
       {/* 操作ボタン */}
