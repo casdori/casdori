@@ -2123,6 +2123,7 @@ function SessionSetup({ table, settings, shopId, onClose }) {
 // ──────────────────────────────────────────
 function SessionDetail({ table, session, sessions, shopId, settings, calcSessionTotal, getDrinkTotal, elapsed, onClose, onSetup }) {
   const [showNominate, setShowNominate] = useState(false);
+  const [showEditPeople, setShowEditPeople] = useState(false);
 
   if(!session) {
     // セッションなし → 開始モーダルへ
@@ -2221,10 +2222,13 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
         </div>
       </div>
       {/* 操作ボタン */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
         <button onClick={()=>addExtension(30)} style={{ padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:14 }}>⏱ +30分延長</button>
         <button onClick={()=>addExtension(60)} style={{ padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:14 }}>⏱ +60分延長</button>
       </div>
+      <button onClick={()=>setShowEditPeople(true)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.teal}`, background:C.tealDim, color:C.teal, fontWeight:800, cursor:"pointer", fontSize:14, marginBottom:8 }}>
+        👥 人数・会員情報を変更
+      </button>
       <button onClick={()=>setShowNominate(!showNominate)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.pink}`, background:C.pinkDim, color:C.pink, fontWeight:800, cursor:"pointer", fontSize:14, marginBottom:8 }}>
         ⭐ 指名を追加（60分 ¥2,200）
       </button>
@@ -2256,6 +2260,89 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
       <button onClick={endSession} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.gold},#c69a30)`, color:"#0a0618", fontWeight:900, fontSize:17, cursor:"pointer" }}>
         💴 会計してテーブルクリア
       </button>
+
+      {/* 人数・会員情報の編集モーダル */}
+      {showEditPeople && (
+        <EditPeopleModal
+          session={session}
+          shopId={shopId}
+          tableId={table.id}
+          tableLabel={table.label}
+          onClose={()=>setShowEditPeople(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
+// 人数・会員情報の編集モーダル
+// ──────────────────────────────────────────
+function EditPeopleModal({ session, shopId, tableId, tableLabel, onClose }) {
+  const [male, setMale]     = useState(session.male||0);
+  const [female, setFemale] = useState(session.female||0);
+  const [isApp, setIsApp]   = useState(session.isApp||false);
+  const [appHappy, setAppHappy] = useState(session.appHappy||false);
+
+  async function save() {
+    if(male + female === 0) { alert("人数を入力してください"); return; }
+    const newSess = { ...session, male, female, isApp, appHappy };
+    await DB.saveTableSession(shopId, tableId, newSess);
+    onClose();
+  }
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", background:"#130b28", border:`2px solid ${C.teal}`, borderRadius:24, padding:20 }}>
+        <div style={{ textAlign:"center", marginBottom:14 }}>
+          <div style={{ fontSize:32, marginBottom:6 }}>👥</div>
+          <div style={{ fontSize:18, fontWeight:900, color:C.teal }}>人数・会員情報を変更</div>
+          <div style={{ fontSize:13, color:C.textDim, marginTop:4 }}>{tableLabel}</div>
+        </div>
+
+        {/* 男性 */}
+        <div style={{ padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:8 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:14, fontWeight:700, color:C.text }}>👨 男性</span>
+            <span style={{ fontSize:11, color:C.textDim }}>60分 ¥5,000</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={()=>setMale(Math.max(0,male-1))} style={{ width:44, height:44, borderRadius:22, border:`1px solid ${C.border}`, background:"transparent", color:C.text, fontSize:22, cursor:"pointer" }}>−</button>
+            <div style={{ flex:1, textAlign:"center", fontSize:28, fontWeight:900, color:C.gold }}>{male}名</div>
+            <button onClick={()=>setMale(male+1)} style={{ width:44, height:44, borderRadius:22, border:`1px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontSize:22, cursor:"pointer" }}>+</button>
+          </div>
+        </div>
+
+        {/* 女性 */}
+        <div style={{ padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:14, fontWeight:700, color:C.text }}>👩 女性</span>
+            <span style={{ fontSize:11, color:C.textDim }}>60分 ¥2,500</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={()=>setFemale(Math.max(0,female-1))} style={{ width:44, height:44, borderRadius:22, border:`1px solid ${C.border}`, background:"transparent", color:C.text, fontSize:22, cursor:"pointer" }}>−</button>
+            <div style={{ flex:1, textAlign:"center", fontSize:28, fontWeight:900, color:C.pink }}>{female}名</div>
+            <button onClick={()=>setFemale(female+1)} style={{ width:44, height:44, borderRadius:22, border:`1px solid ${C.pink}`, background:C.pinkDim, color:C.pink, fontSize:22, cursor:"pointer" }}>+</button>
+          </div>
+        </div>
+
+        {/* アプリ会員 */}
+        <button onClick={()=>setIsApp(!isApp)} style={{ width:"100%", padding:"12px 14px", borderRadius:14, border:`1px solid ${isApp?C.teal:C.border}`, background:isApp?C.tealDim:C.bgCard, color:isApp?C.teal:C.textDim, cursor:"pointer", fontSize:14, fontWeight:700, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span>📱 アプリ会員</span>
+          <span style={{ fontSize:11 }}>{isApp?"ON":"OFF"}</span>
+        </button>
+        {isApp && (
+          <button onClick={()=>setAppHappy(!appHappy)} style={{ width:"100%", padding:"12px 14px", borderRadius:14, border:`1px solid ${appHappy?C.purple:C.border}`, background:appHappy?C.purpleDim:C.bgCard, color:appHappy?C.purple:C.textDim, cursor:"pointer", fontSize:13, marginBottom:10, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <span>🌅 ハッピーアワー</span>
+            <span style={{ fontSize:11 }}>{appHappy?"ON":"OFF"}</span>
+          </button>
+        )}
+
+        <div style={{ display:"flex", gap:8, marginTop:14 }}>
+          <button onClick={onClose} style={{ flex:1, padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>キャンセル</button>
+          <button onClick={save} style={{ flex:2, padding:"14px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.teal},#2a9aab)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:15 }}>✅ 変更を保存</button>
+        </div>
+      </div>
     </div>
   );
 }
