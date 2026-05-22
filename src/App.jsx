@@ -1337,7 +1337,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
       <div style={{ display:"flex", alignItems:"center", padding:"12px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", gap:8, flexWrap:"wrap" }}>
         <span style={{ fontSize:16, color:C.gold }}>♛</span>
         <span style={{ fontSize:13, fontWeight:900, color:C.gold }}>ADMIN</span>
-        {[{k:"kitchen",l:"🍹 ドリンク場"},{k:"stats",l:"📊 集計"}].map(t=>(
+        {[{k:"kitchen",l:"🍹 ドリンク場"},{k:"stats",l:"📊 集計"},{k:"time",l:"⏱ 時間管理"}].map(t=>(
           <button key={t.k} onClick={()=>{setTab(t.k);setDetailCast(null);}} style={{ padding:"5px 12px", borderRadius:16, fontSize:13, fontWeight:700, border:`1px solid ${tab===t.k?C.gold:C.border}`, background:tab===t.k?C.goldDim:"transparent", color:tab===t.k?C.gold:C.textDim, cursor:"pointer" }}>{t.l}</button>
         ))}
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
