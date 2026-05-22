@@ -1051,6 +1051,50 @@ function CastTerminal({ onExit, settings, shopId }) {
           </div>
         </div>
       )}
+      {/* 送信前の確認モーダル（ドリンク選択画面用） */}
+      {confirm && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:250, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ width:"100%", maxWidth:460, background:"#130b28", border:`3px solid ${C.gold}`, borderRadius:24, padding:24, boxShadow:`0 0 40px rgba(232,184,75,0.3)` }}>
+            <div style={{ textAlign:"center", marginBottom:16 }}>
+              <div style={{ fontSize:36, marginBottom:6 }}>⚠️</div>
+              <div style={{ fontSize:20, fontWeight:900, color:C.gold }}>送信内容の確認</div>
+              <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>卓番号・キャスト・ドリンクを確認してください</div>
+            </div>
+            <div style={{ padding:"14px", background:"rgba(232,184,75,0.18)", border:`2px solid ${C.gold}`, borderRadius:14, marginBottom:12, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.textDim, marginBottom:3 }}>送信先の卓</div>
+              <div style={{ fontSize:36, fontWeight:900, color:C.gold, lineHeight:1 }}>{tInfo?.label}</div>
+            </div>
+            {(()=>{ 
+              const castNames = [...new Set(cart.map(i=>i.isGuest?"🥂 ゲスト":`💗 ${i.castName}`))];
+              return (
+                <div style={{ padding:"12px", background:"rgba(240,109,171,0.15)", border:`2px solid ${C.pink}`, borderRadius:14, marginBottom:14, textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:C.textDim, marginBottom:3 }}>キャスト</div>
+                  <div style={{ fontSize:20, fontWeight:900, color:C.pink, lineHeight:1.3 }}>{castNames.join("　/　")}</div>
+                </div>
+              );
+            })()}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 注文内容（{cart.length}件）</div>
+            <div style={{ maxHeight:"30vh", overflowY:"auto", marginBottom:18 }}>
+              {cart.map(item=>(
+                <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:10, marginBottom:5 }}>
+                  <span style={{ fontSize:20 }}>{item.emoji}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                    <div style={{ fontSize:10, color:item.isGuest?C.purple:C.pink, fontWeight:700, marginTop:2 }}>
+                      {item.isGuest?"🥂 ゲスト":`💗 ${item.castName}`}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:900, color:C.gold }}>×{item.qty}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setConfirm(false)} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>戻る</button>
+              <button onClick={submit} style={{ flex:2, padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17 }}>✅ 送信する</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 送信完了モーダル（大きく目立つように） */}
       {submitResult && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
