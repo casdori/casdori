@@ -1864,13 +1864,21 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
   };
   const SERVICE_RATE = 0.10;
 
-  // 経過時間計算
-  function elapsed(startedAt) {
-    const sec = Math.floor((now - startedAt)/1000);
-    const h = Math.floor(sec/3600);
-    const m = Math.floor((sec%3600)/60);
-    const s = sec%60;
-    return { sec, h, m, s, text: `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` };
+  // 残り時間計算：60分 - 経過時間（延長分も加算）
+  function elapsed(sess) {
+    if(!sess) return { sec:3600, m:60, s:0, isOver:false, text:"60:00", elapsedSec:0 };
+    const elapsedSec = Math.floor((now - sess.startedAt)/1000);
+    // 持ち時間：基本60分 + 延長合計
+    const extendMin = (sess.extensions||[]).reduce((sum,e)=>sum+(e.duration||0),0);
+    const totalMin  = 60 + extendMin;
+    const remainSec = totalMin*60 - elapsedSec;
+    const isOver = remainSec < 0;
+    const absSec  = Math.abs(remainSec);
+    const m = Math.floor(absSec/60);
+    const s = absSec%60;
+    const sign = isOver ? "-" : "";
+    return { sec:remainSec, m, s, isOver, elapsedSec,
+      text: `${sign}${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` };
   }
 
   // 料金計算
@@ -1952,8 +1960,8 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
           const sess = sessions[t.id];
           const calc = calcSessionTotal(sess);
           const drink = getDrinkTotal(t.id);
-          const el = sess ? elapsed(sess.startedAt) : null;
-          const isOver60 = el && el.sec >= 3600;
+          const el = sess ? elapsed(sess) : null;
+          const isOver60 = el && el.isOver;
           return (
             <button key={t.id} onClick={()=>setSelTable(t)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${sess?(isOver60?C.red:C.gold):C.border}`, background:sess?(isOver60?C.redDim:C.goldDim):C.bgCard, cursor:"pointer", textAlign:"left" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:sess?6:0 }}>
@@ -2082,8 +2090,8 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
 
   const calc = calcSessionTotal(session);
   const drink = getDrinkTotal(table.id);
-  const el = elapsed(session.startedAt);
-  const isOver60 = el.sec >= 3600;
+  const el = elapsed(session);
+  const isOver60 = el.isOver;
 
   async function addExtension(duration) {
     const newSess = {...session, extensions:[...(session.extensions||[]), { duration, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
@@ -2109,7 +2117,7 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
       <div style={{ padding:"20px", background:isOver60?C.redDim:C.goldDim, border:`2px solid ${isOver60?C.red:C.gold}`, borderRadius:18, marginBottom:14, textAlign:"center" }}>
         <div style={{ fontSize:18, fontWeight:900, color:isOver60?C.red:C.gold, marginBottom:6 }}>{table.label}</div>
         <div style={{ fontSize:44, fontWeight:900, color:isOver60?C.red:C.gold, fontFamily:"monospace", lineHeight:1 }}>{el.text}</div>
-        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>{isOver60?"⚠️ 60分経過 - 延長が必要です":"⏱ 60分以内"}</div>
+        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>{isOver60?"⚠️ 時間超過しています":"⏱ 残り時間"}</div>
         <div style={{ fontSize:13, color:C.text, marginTop:8 }}>👨{session.male} 👩{session.female}{session.isApp&&" 📱アプリ"}{session.appHappy&&" 🌅"}</div>
       </div>
       {/* 内訳 */}
