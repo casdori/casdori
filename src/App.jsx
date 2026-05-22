@@ -1976,10 +1976,21 @@ function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
                 )}
               </div>
               {sess && (
-                <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
-                  <span style={{ color:C.textDim }}>セット ¥{calc.total.toLocaleString()} ／ ドリンク ¥{drink.toLocaleString()}</span>
-                  <span style={{ color:C.gold, fontWeight:800 }}>合計 ¥{(calc.total+drink).toLocaleString()}</span>
-                </div>
+                <>
+                  {/* 指名キャスト */}
+                  {(sess.nominations||[]).length>0 && (
+                    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:10, color:C.pink, fontWeight:700 }}>⭐ 指名</span>
+                      {sess.nominations.map((n,i)=>(
+                        <span key={i} style={{ padding:"2px 8px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:10, fontSize:11, fontWeight:700, color:C.pink }}>{n.castName}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
+                    <span style={{ color:C.textDim }}>セット ¥{calc.total.toLocaleString()} ／ ドリンク ¥{drink.toLocaleString()}</span>
+                    <span style={{ color:C.gold, fontWeight:800 }}>合計 ¥{(calc.total+drink).toLocaleString()}</span>
+                  </div>
+                </>
               )}
             </button>
           );
