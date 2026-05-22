@@ -55,6 +55,13 @@ const DB = {
   updateServiceStatus: async (shopId, svcId, status) => {
     try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
   },
+  // 時間管理：テーブルセッションの保存・更新
+  saveTableSession: async (shopId, tableId, session) => {
+    try { await set(ref(db, `shops/${shopId}/sessions/${tableId}`), session); } catch(e){console.error(e);}
+  },
+  removeTableSession: async (shopId, tableId) => {
+    try { await update(ref(db), { [`shops/${shopId}/sessions/${tableId}`]: null }); } catch(e){console.error(e);}
+  },
   // 卓移動：該当卓の全batchesのtableIdを変更（履歴も記録）
   moveTable: async (shopId, fromTableId, toTableId, toTableLabel) => {
     try {
@@ -107,15 +114,18 @@ const DB = {
     const bRef = ref(db,`shops/${shopId}/batches`);
     const sRef = ref(db,`shops/${shopId}/services`);
     const aRef = ref(db,`shops/${shopId}/archived`);
-    let batches=[], services=[], archived=[];
-    const notify = () => cb({batches:[...batches],services:[...services],archived:[...archived]});
+    const seRef = ref(db,`shops/${shopId}/sessions`);
+    let batches=[], services=[], archived=[], sessions={};
+    const notify = () => cb({batches:[...batches],services:[...services],archived:[...archived],sessions:{...sessions}});
     const bh = snap => { batches=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
     const sh = snap => { services=snap.exists()?Object.values(snap.val()).sort((a,b)=>b.time>a.time?1:-1):[]; notify(); };
     const ah = snap => { archived=snap.exists()?Object.values(snap.val()):[]; notify(); };
+    const seh = snap => { sessions=snap.exists()?snap.val():{}; notify(); };
     onValue(bRef,bh);
     onValue(sRef,sh);
     onValue(aRef,ah);
-    return () => { off(bRef,'value',bh); off(sRef,'value',sh); off(aRef,'value',ah); };
+    onValue(seRef,seh);
+    return () => { off(bRef,'value',bh); off(sRef,'value',sh); off(aRef,'value',ah); off(seRef,'value',seh); };
   },
 };
 
@@ -1208,7 +1218,7 @@ function CastTerminal({ onExit, settings, shopId }) {
 }
 
 function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
-  const [data, setData]             = useState({ batches:[], services:[], archived:[] });
+  const [data, setData]             = useState({ batches:[], services:[], archived:[], sessions:{} });
   const [tab, setTab]               = useState("kitchen");
   const [detailCast, setDetailCast] = useState(null);
   const [detailTable, setDetailTable] = useState(null); // 卓詳細
@@ -1267,7 +1277,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
     return ()=>clearInterval(timer);
   }, [shopId]);
 
-  const { batches, services, archived } = data;
+  const { batches, services, archived, sessions } = data;
   const today = getBusinessDate();
   // 今日の営業日のデータだけフィルター
   // businessDateが今日と一致するデータのみ表示（未設定データは除外）
@@ -1571,6 +1581,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             </div>
           </div>
         )}
+        {/* ⏱ 時間管理タブ */}
+        {tab==="time" && <TimeMgmtPanel shopId={shopId} settings={settings} sessions={sessions} batches={batches} todayBatches={todayBatches} />}
         {tab==="stats" && detailCast && detail && (()=>{
           const BACK_RATE = 0.3;
           // 価格別に集計
@@ -1826,6 +1838,349 @@ function SettingsPanel({ settings, shopId, onSave, onExit }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+// 時間管理パネル
+// ══════════════════════════════════════════════════════════════
+function TimeMgmtPanel({ shopId, settings, sessions, batches, todayBatches }) {
+  const [selTable, setSelTable]   = useState(null);
+  const [setupTable, setSetupTable] = useState(null); // 新規開始する卓
+  const [now, setNow] = useState(Date.now());
+
+  // 1秒ごとに現在時刻を更新（タイマー表示用）
+  useEffect(()=>{
+    const t = setInterval(()=>setNow(Date.now()), 1000);
+    return ()=>clearInterval(t);
+  }, []);
+
+  // 料金体系
+  const PRICES = {
+    male:        { normal:5000, app:4400, appHappy:3500 }, // appHappyは20:00〜21:00
+    female:      { normal:2500, app:2500 },
+    extend30:    { normal:2500, app:2200 },
+    extend60:    { normal:5000, app:4400 },
+    vipBase60:   12000, // 4名以下
+    vipLarge60:  20000, // 5名以上
+    nominate60:  2200,
+  };
+  const SERVICE_RATE = 0.10;
+
+  // 経過時間計算
+  function elapsed(startedAt) {
+    const sec = Math.floor((now - startedAt)/1000);
+    const h = Math.floor(sec/3600);
+    const m = Math.floor((sec%3600)/60);
+    const s = sec%60;
+    return { sec, h, m, s, text: `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` };
+  }
+
+  // 料金計算
+  function calcSessionTotal(sess) {
+    if(!sess) return { subtotal:0, service:0, total:0, breakdown:[] };
+    const isVIP = String(sess.tableId).startsWith("vip");
+    const totalPeople = (sess.male||0) + (sess.female||0);
+    const breakdown = [];
+    let subtotal = 0;
+
+    if(isVIP) {
+      // VIP料金（人数で自動判定）
+      const vipPrice = totalPeople >= 5 ? PRICES.vipLarge60 : PRICES.vipBase60;
+      breakdown.push({ label: `VIPルーム 60分（${totalPeople}名）`, amount: vipPrice });
+      subtotal += vipPrice;
+    } else {
+      // 通常席：男女別
+      if(sess.male > 0) {
+        const price = sess.isApp ? (sess.appHappy ? PRICES.male.appHappy : PRICES.male.app) : PRICES.male.normal;
+        breakdown.push({ label: `男性 60分 × ${sess.male}名`, amount: price * sess.male, unit: price });
+        subtotal += price * sess.male;
+      }
+      if(sess.female > 0) {
+        const price = sess.isApp ? PRICES.female.app : PRICES.female.normal;
+        breakdown.push({ label: `女性 60分 × ${sess.female}名`, amount: price * sess.female, unit: price });
+        subtotal += price * sess.female;
+      }
+    }
+
+    // 延長
+    (sess.extensions||[]).forEach((ext,i)=>{
+      const price = ext.duration === 30
+        ? (sess.isApp ? PRICES.extend30.app : PRICES.extend30.normal)
+        : (sess.isApp ? PRICES.extend60.app : PRICES.extend60.normal);
+      breakdown.push({ label: `延長${ext.duration}分（${ext.time}）`, amount: price });
+      subtotal += price;
+    });
+
+    // 指名
+    (sess.nominations||[]).forEach(nom=>{
+      breakdown.push({ label: `指名（${nom.castName}）60分`, amount: PRICES.nominate60 });
+      subtotal += PRICES.nominate60;
+    });
+
+    const service = Math.floor(subtotal * SERVICE_RATE);
+    return { subtotal, service, total: subtotal + service, breakdown };
+  }
+
+  // 卓のドリンク売上
+  function getDrinkTotal(tableId) {
+    let total = 0;
+    todayBatches.filter(b=>String(b.tableId)===String(tableId)).forEach(b=>{
+      b.items.forEach(item=>{
+        if(!item.noCount) total += (item.price||0)*(item.qty||1);
+      });
+    });
+    return total;
+  }
+
+  // 卓設定モーダル：人数入力
+  if(setupTable) {
+    return <SessionSetup table={setupTable} settings={settings} shopId={shopId} onClose={()=>setSetupTable(null)} />;
+  }
+
+  // 卓詳細
+  if(selTable) {
+    const sess = sessions[selTable.id];
+    return <SessionDetail table={selTable} session={sess} sessions={sessions} shopId={shopId} settings={settings}
+            calcSessionTotal={calcSessionTotal} getDrinkTotal={getDrinkTotal} elapsed={elapsed}
+            onClose={()=>setSelTable(null)} onSetup={()=>setSetupTable(selTable)} />;
+  }
+
+  // 一覧
+  return (
+    <div style={{ padding:"16px" }}>
+      <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>⏱ テーブル時間管理</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {settings.tables.map(t=>{
+          const sess = sessions[t.id];
+          const calc = calcSessionTotal(sess);
+          const drink = getDrinkTotal(t.id);
+          const el = sess ? elapsed(sess.startedAt) : null;
+          const isOver60 = el && el.sec >= 3600;
+          return (
+            <button key={t.id} onClick={()=>setSelTable(t)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`1px solid ${sess?(isOver60?C.red:C.gold):C.border}`, background:sess?(isOver60?C.redDim:C.goldDim):C.bgCard, cursor:"pointer", textAlign:"left" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:sess?6:0 }}>
+                <span style={{ fontSize:16, fontWeight:900, color:sess?(isOver60?C.red:C.gold):C.textDim, minWidth:60 }}>{t.label}</span>
+                {sess ? (
+                  <>
+                    <span style={{ fontSize:13, color:C.text }}>👨{sess.male} 👩{sess.female}{sess.isApp&&" 📱"}</span>
+                    <span style={{ marginLeft:"auto", fontSize:18, fontWeight:900, fontFamily:"monospace", color:isOver60?C.red:C.gold }}>{el.text}</span>
+                  </>
+                ) : (
+                  <span style={{ marginLeft:"auto", fontSize:12, color:C.textDim }}>空席 →</span>
+                )}
+              </div>
+              {sess && (
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
+                  <span style={{ color:C.textDim }}>セット ¥{calc.total.toLocaleString()} ／ ドリンク ¥{drink.toLocaleString()}</span>
+                  <span style={{ color:C.gold, fontWeight:800 }}>合計 ¥{(calc.total+drink).toLocaleString()}</span>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
+// 新規セッション開始モーダル
+// ──────────────────────────────────────────
+function SessionSetup({ table, settings, shopId, onClose }) {
+  const [male, setMale]     = useState(0);
+  const [female, setFemale] = useState(0);
+  const [isApp, setIsApp]   = useState(false);
+  const [appHappy, setAppHappy] = useState(false);
+
+  async function start() {
+    const total = male + female;
+    if(total === 0) { alert("人数を入力してください"); return; }
+    await DB.saveTableSession(shopId, table.id, {
+      tableId: table.id, tableLabel: table.label,
+      male, female, isApp, appHappy,
+      startedAt: Date.now(),
+      extensions: [], nominations: [],
+    });
+    onClose();
+  }
+
+  return (
+    <div style={{ padding:"16px" }}>
+      <button onClick={onClose} style={{ marginBottom:14, padding:"6px 14px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
+      <div style={{ textAlign:"center", marginBottom:20 }}>
+        <div style={{ fontSize:32, fontWeight:900, color:C.gold }}>{table.label}</div>
+        <div style={{ fontSize:13, color:C.textDim, marginTop:4 }}>人数を入力してください</div>
+      </div>
+      {/* 男性 */}
+      <div style={{ padding:"16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:10 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <span style={{ fontSize:15, fontWeight:700, color:C.text }}>👨 男性</span>
+          <span style={{ fontSize:11, color:C.textDim }}>60分 ¥5,000</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setMale(Math.max(0,male-1))} style={{ width:48, height:48, borderRadius:24, border:`1px solid ${C.border}`, background:"transparent", color:C.text, fontSize:24, cursor:"pointer" }}>−</button>
+          <div style={{ flex:1, textAlign:"center", fontSize:32, fontWeight:900, color:C.gold }}>{male}名</div>
+          <button onClick={()=>setMale(male+1)} style={{ width:48, height:48, borderRadius:24, border:`1px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontSize:24, cursor:"pointer" }}>+</button>
+        </div>
+      </div>
+      {/* 女性 */}
+      <div style={{ padding:"16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:10 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <span style={{ fontSize:15, fontWeight:700, color:C.text }}>👩 女性</span>
+          <span style={{ fontSize:11, color:C.textDim }}>60分 ¥2,500</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setFemale(Math.max(0,female-1))} style={{ width:48, height:48, borderRadius:24, border:`1px solid ${C.border}`, background:"transparent", color:C.text, fontSize:24, cursor:"pointer" }}>−</button>
+          <div style={{ flex:1, textAlign:"center", fontSize:32, fontWeight:900, color:C.pink }}>{female}名</div>
+          <button onClick={()=>setFemale(female+1)} style={{ width:48, height:48, borderRadius:24, border:`1px solid ${C.pink}`, background:C.pinkDim, color:C.pink, fontSize:24, cursor:"pointer" }}>+</button>
+        </div>
+      </div>
+      {/* アプリ会員 */}
+      <button onClick={()=>setIsApp(!isApp)} style={{ width:"100%", padding:"14px 16px", borderRadius:14, border:`1px solid ${isApp?C.teal:C.border}`, background:isApp?C.tealDim:C.bgCard, color:isApp?C.teal:C.textDim, cursor:"pointer", fontSize:14, fontWeight:700, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span>📱 アプリ会員</span>
+        <span style={{ fontSize:11 }}>{isApp?"ON":"OFF"}</span>
+      </button>
+      {isApp && (
+        <button onClick={()=>setAppHappy(!appHappy)} style={{ width:"100%", padding:"12px 16px", borderRadius:14, border:`1px solid ${appHappy?C.purple:C.border}`, background:appHappy?C.purpleDim:C.bgCard, color:appHappy?C.purple:C.textDim, cursor:"pointer", fontSize:13, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span>🌅 ハッピーアワー（20:00〜21:00入店）</span>
+          <span style={{ fontSize:11 }}>{appHappy?"ON":"OFF"}</span>
+        </button>
+      )}
+      {/* VIP案内 */}
+      {String(table.id).startsWith("vip") && (
+        <div style={{ padding:"10px 14px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:10, marginBottom:10, fontSize:11, color:C.gold }}>
+          👑 VIPルーム　4名以下 ¥12,000 ／ 5名以上 ¥20,000（60分）
+        </div>
+      )}
+      <button onClick={start} disabled={male+female===0} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:male+female>0?`linear-gradient(135deg,${C.green},#2aab6e)`:"rgba(255,255,255,0.1)", color:male+female>0?"#0a0618":C.textDim, fontWeight:900, fontSize:17, cursor:male+female>0?"pointer":"not-allowed", marginTop:6 }}>
+        ▶ タイマースタート
+      </button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
+// セッション詳細
+// ──────────────────────────────────────────
+function SessionDetail({ table, session, sessions, shopId, settings, calcSessionTotal, getDrinkTotal, elapsed, onClose, onSetup }) {
+  const [showNominate, setShowNominate] = useState(false);
+
+  if(!session) {
+    // セッションなし → 開始モーダルへ
+    return (
+      <div style={{ padding:"16px" }}>
+        <button onClick={onClose} style={{ marginBottom:14, padding:"6px 14px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
+        <div style={{ textAlign:"center", marginTop:60 }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🪑</div>
+          <div style={{ fontSize:28, fontWeight:900, color:C.gold, marginBottom:8 }}>{table.label}</div>
+          <div style={{ fontSize:14, color:C.textDim, marginBottom:24 }}>空席です</div>
+          <button onClick={onSetup} style={{ padding:"16px 32px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, fontSize:16, cursor:"pointer" }}>
+            ▶ お客様を入店させる
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const calc = calcSessionTotal(session);
+  const drink = getDrinkTotal(table.id);
+  const el = elapsed(session.startedAt);
+  const isOver60 = el.sec >= 3600;
+
+  async function addExtension(duration) {
+    const newSess = {...session, extensions:[...(session.extensions||[]), { duration, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
+    await DB.saveTableSession(shopId, table.id, newSess);
+  }
+
+  async function addNomination(castName) {
+    const newSess = {...session, nominations:[...(session.nominations||[]), { castName, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
+    await DB.saveTableSession(shopId, table.id, newSess);
+    setShowNominate(false);
+  }
+
+  async function endSession() {
+    if(!window.confirm(`${table.label} の会計を確定しますか？`)) return;
+    await DB.removeTableSession(shopId, table.id);
+    onClose();
+  }
+
+  return (
+    <div style={{ padding:"16px" }}>
+      <button onClick={onClose} style={{ marginBottom:10, padding:"6px 14px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
+      {/* タイマー */}
+      <div style={{ padding:"20px", background:isOver60?C.redDim:C.goldDim, border:`2px solid ${isOver60?C.red:C.gold}`, borderRadius:18, marginBottom:14, textAlign:"center" }}>
+        <div style={{ fontSize:18, fontWeight:900, color:isOver60?C.red:C.gold, marginBottom:6 }}>{table.label}</div>
+        <div style={{ fontSize:44, fontWeight:900, color:isOver60?C.red:C.gold, fontFamily:"monospace", lineHeight:1 }}>{el.text}</div>
+        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>{isOver60?"⚠️ 60分経過 - 延長が必要です":"⏱ 60分以内"}</div>
+        <div style={{ fontSize:13, color:C.text, marginTop:8 }}>👨{session.male} 👩{session.female}{session.isApp&&" 📱アプリ"}{session.appHappy&&" 🌅"}</div>
+      </div>
+      {/* 内訳 */}
+      <div style={{ padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:14 }}>
+        <div style={{ fontSize:11, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 料金内訳</div>
+        {calc.breakdown.map((b,i)=>(
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"4px 0", color:C.text }}>
+            <span>{b.label}</span>
+            <span style={{ color:C.gold, fontWeight:700 }}>¥{b.amount.toLocaleString()}</span>
+          </div>
+        ))}
+        <div style={{ borderTop:`1px dashed ${C.border}`, paddingTop:6, marginTop:6 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"2px 0" }}>
+            <span>セット小計</span>
+            <span>¥{calc.subtotal.toLocaleString()}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"2px 0" }}>
+            <span>サービス料 10%</span>
+            <span>¥{calc.service.toLocaleString()}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, padding:"4px 0", borderTop:`1px dashed ${C.border}`, marginTop:4 }}>
+            <span>ドリンク代</span>
+            <span>¥{drink.toLocaleString()}</span>
+          </div>
+        </div>
+        <div style={{ borderTop:`2px solid ${C.gold}`, marginTop:8, paddingTop:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:14, fontWeight:800, color:C.gold }}>合計</span>
+          <span style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{(calc.total+drink).toLocaleString()}</span>
+        </div>
+      </div>
+      {/* 操作ボタン */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+        <button onClick={()=>addExtension(30)} style={{ padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:14 }}>⏱ +30分延長</button>
+        <button onClick={()=>addExtension(60)} style={{ padding:"14px", borderRadius:14, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:14 }}>⏱ +60分延長</button>
+      </div>
+      <button onClick={()=>setShowNominate(!showNominate)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.pink}`, background:C.pinkDim, color:C.pink, fontWeight:800, cursor:"pointer", fontSize:14, marginBottom:8 }}>
+        ⭐ 指名を追加（60分 ¥2,200）
+      </button>
+      {showNominate && (
+        <div style={{ padding:"12px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+            {[...(settings.castList||[])].sort((a,b)=>a.localeCompare(b,"ja")).map(name=>(
+              <button key={name} onClick={()=>addNomination(name)} style={{ padding:"10px 6px", borderRadius:10, border:`1px solid ${C.pinkBorder}`, background:"transparent", color:C.pink, fontSize:12, fontWeight:700, cursor:"pointer" }}>{name}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* 指名一覧 */}
+      {(session.nominations||[]).length>0 && (
+        <div style={{ padding:"12px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:14, marginBottom:14 }}>
+          <div style={{ fontSize:11, color:C.pink, fontWeight:700, marginBottom:6 }}>⭐ 指名中のキャスト</div>
+          {session.nominations.map((n,i)=>(
+            <div key={i} style={{ fontSize:13, color:C.pink, padding:"3px 0", display:"flex", justifyContent:"space-between" }}>
+              <span>🕐 {n.time}　{n.castName}</span>
+              <button onClick={async()=>{
+                if(!window.confirm(`${n.castName} の指名を取り消しますか？`)) return;
+                const newSess = {...session, nominations: session.nominations.filter((_,j)=>j!==i)};
+                await DB.saveTableSession(shopId, table.id, newSess);
+              }} style={{ padding:"2px 8px", borderRadius:6, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", fontSize:10 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={endSession} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.gold},#c69a30)`, color:"#0a0618", fontWeight:900, fontSize:17, cursor:"pointer" }}>
+        💴 会計してテーブルクリア
+      </button>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 function DailyReportPanel({ shopId, onExit }) {
   const today = getBusinessDate();
   const [dates, setDates]     = useState([]);
