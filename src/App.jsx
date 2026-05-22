@@ -55,6 +55,25 @@ const DB = {
   updateServiceStatus: async (shopId, svcId, status) => {
     try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
   },
+  // 卓移動：該当卓の全batchesのtableIdを変更（履歴も記録）
+  moveTable: async (shopId, fromTableId, toTableId, toTableLabel) => {
+    try {
+      const bs = await get(ref(db, `shops/${shopId}/batches`));
+      if (!bs.exists()) return;
+      const moveTime = new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const u = {};
+      Object.entries(bs.val()).forEach(([k,v])=>{
+        if(String(v.tableId)===String(fromTableId)) {
+          const moveHistory = v.moveHistory || [];
+          moveHistory.push({ from: v.tableLabel, to: toTableLabel, time: moveTime });
+          u[`shops/${shopId}/batches/${k}/tableId`]    = toTableId;
+          u[`shops/${shopId}/batches/${k}/tableLabel`] = toTableLabel;
+          u[`shops/${shopId}/batches/${k}/moveHistory`]= moveHistory;
+        }
+      });
+      if(Object.keys(u).length>0) await update(ref(db), u);
+    } catch(e){console.error("moveTable error:",e);}
+  },
   // 会計：卓のbatchesをarchivedに移動（キャスト集計は維持）
   checkoutTable: async (shopId, tableId) => {
     try {
@@ -812,22 +831,47 @@ function CastTerminal({ onExit, settings, shopId }) {
         );})()}
       </div>
       {confirm && (
-        <div onClick={()=>setConfirm(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#130b28", borderRadius:"24px 24px 0 0", padding:24 }}>
-            <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:16 }}>注文確認 - {tInfo?.label}</div>
-            <div style={{ maxHeight:"40vh", overflowY:"auto", marginBottom:16 }}>
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:250, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ width:"100%", maxWidth:460, background:"#130b28", border:`3px solid ${C.gold}`, borderRadius:24, padding:24, boxShadow:`0 0 40px rgba(232,184,75,0.3)` }}>
+            <div style={{ textAlign:"center", marginBottom:16 }}>
+              <div style={{ fontSize:36, marginBottom:6 }}>⚠️</div>
+              <div style={{ fontSize:20, fontWeight:900, color:C.gold }}>送信内容の確認</div>
+              <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>卓番号・キャスト・ドリンクを確認してください</div>
+            </div>
+            {/* 卓番号（大きく） */}
+            <div style={{ padding:"14px", background:"rgba(232,184,75,0.18)", border:`2px solid ${C.gold}`, borderRadius:14, marginBottom:12, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.textDim, marginBottom:3 }}>送信先の卓</div>
+              <div style={{ fontSize:36, fontWeight:900, color:C.gold, lineHeight:1 }}>{tInfo?.label}</div>
+            </div>
+            {/* キャスト名（大きく） */}
+            {(()=>{ 
+              const castNames = [...new Set(cart.map(i=>i.isGuest?"🥂 ゲスト":`💗 ${i.castName}`))];
+              return (
+                <div style={{ padding:"12px", background:"rgba(240,109,171,0.15)", border:`2px solid ${C.pink}`, borderRadius:14, marginBottom:14, textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:C.textDim, marginBottom:3 }}>キャスト</div>
+                  <div style={{ fontSize:20, fontWeight:900, color:C.pink, lineHeight:1.3 }}>{castNames.join("　/　")}</div>
+                </div>
+              );
+            })()}
+            {/* 注文内容 */}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 注文内容（{cart.length}件）</div>
+            <div style={{ maxHeight:"30vh", overflowY:"auto", marginBottom:18 }}>
               {cart.map(item=>(
-                <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:C.goldDim, borderRadius:10, marginBottom:6 }}>
-                  <span>{item.emoji}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50 }}>{item.isGuest?"ゲスト":item.castName}</span>
-                  <span style={{ flex:1, fontSize:13 }}>{item.drinkName}</span>
-                  <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
+                <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:10, marginBottom:5 }}>
+                  <span style={{ fontSize:20 }}>{item.emoji}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                    <div style={{ fontSize:10, color:item.isGuest?C.purple:C.pink, fontWeight:700, marginTop:2 }}>
+                      {item.isGuest?"🥂 ゲスト":`💗 ${item.castName}`}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:900, color:C.gold }}>×{item.qty}</div>
                 </div>
               ))}
             </div>
             <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setConfirm(false)} style={{ flex:1, padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15 }}>戻る</button>
-              <button onClick={submit} style={{ flex:2, padding:"14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:15 }}>送信する</button>
+              <button onClick={()=>setConfirm(false)} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>戻る</button>
+              <button onClick={submit} style={{ flex:2, padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17 }}>✅ 送信する</button>
             </div>
           </div>
         </div>
@@ -919,15 +963,21 @@ function CastTerminal({ onExit, settings, shopId }) {
         {/* カート＋送信ボタン（カートがある時のみ） */}
         {myCartItems.length>0 && (
           <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:6 }}>🛒 カート ({myCartItems.length}件)</div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
-              {myCartItems.map((item,i)=>(
-                <div key={i} style={{ padding:"4px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:11, color:C.gold, fontWeight:700 }}>
-                  {item.emoji} {item.drinkName}{item.nonAlco?" ❤️":""} ×{item.qty}
-                </div>
-              ))}
+            <div style={{ fontSize:13, color:C.gold, fontWeight:800, marginBottom:8 }}>🛒 カート ({myCartItems.length}件)</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:10 }}>
+              {myCartItems.map((item)=>{
+                const cartIdx = cart.findIndex(c=>c.id===item.id);
+                return (
+                  <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:10 }}>
+                    <span style={{ fontSize:18 }}>{item.emoji}</span>
+                    <div style={{ flex:1, fontSize:13, color:C.gold, fontWeight:700 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                    <div style={{ fontSize:13, color:C.gold, fontWeight:800 }}>×{item.qty}</div>
+                    <button onClick={()=>setCart(p=>p.filter((_,ci)=>ci!==cartIdx))} style={{ padding:"5px 9px", borderRadius:8, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer", fontSize:11 }}>✕</button>
+                  </div>
+                );
+              })}
             </div>
-            <button onClick={submit} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
+            <button onClick={()=>setConfirm(true)} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
               ✅ {myCartItems.length}件を送信する
             </button>
           </div>
@@ -1001,44 +1051,50 @@ function CastTerminal({ onExit, settings, shopId }) {
           </div>
         </div>
       )}
-      {/* 送信完了モーダル */}
+      {/* 送信完了モーダル（大きく目立つように） */}
       {submitResult && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
-          onClick={()=>setSubmitResult(null)}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:420, background:"#0d1f10", border:`2px solid ${C.green}`, borderRadius:24, padding:24, boxShadow:`0 0 40px rgba(62,207,142,0.3)` }}>
-            {/* 完了アイコン */}
-            <div style={{ textAlign:"center", marginBottom:20 }}>
-              <div style={{ fontSize:48, marginBottom:8 }}>✅</div>
-              <div style={{ fontSize:20, fontWeight:900, color:C.green }}>送信しました！</div>
-              <div style={{ fontSize:13, color:C.textDim, marginTop:4 }}>{submitResult.time}</div>
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ width:"100%", maxWidth:460, background:"#0d1f10", border:`3px solid ${C.green}`, borderRadius:24, padding:24, boxShadow:`0 0 60px rgba(62,207,142,0.5)` }}>
+            <div style={{ textAlign:"center", marginBottom:18 }}>
+              <div style={{ fontSize:60, marginBottom:8 }}>✅</div>
+              <div style={{ fontSize:24, fontWeight:900, color:C.green }}>送信しました！</div>
+              <div style={{ fontSize:14, color:C.textDim, marginTop:4 }}>{submitResult.time}</div>
             </div>
-            {/* 卓番号 */}
-            <div style={{ padding:"10px 16px", background:"rgba(232,184,75,0.15)", border:`1px solid ${C.goldBorder}`, borderRadius:14, marginBottom:14, textAlign:"center" }}>
-              <div style={{ fontSize:12, color:C.textDim, marginBottom:2 }}>送信先</div>
-              <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>🍽️ {submitResult.tableLabel}</div>
+            {/* 卓番号（大きく） */}
+            <div style={{ padding:"16px", background:"rgba(232,184,75,0.18)", border:`2px solid ${C.gold}`, borderRadius:16, marginBottom:12, textAlign:"center" }}>
+              <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>送信先の卓</div>
+              <div style={{ fontSize:42, fontWeight:900, color:C.gold, lineHeight:1 }}>{submitResult.tableLabel}</div>
             </div>
+            {/* キャスト名（大きく） */}
+            {(()=>{ 
+              const casts = [...new Set(submitResult.items.map(i=>i.isGuest?"🥂 ゲスト":`💗 ${i.castName}`))];
+              return (
+                <div style={{ padding:"14px", background:"rgba(240,109,171,0.15)", border:`2px solid ${C.pink}`, borderRadius:16, marginBottom:14, textAlign:"center" }}>
+                  <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>キャスト</div>
+                  <div style={{ fontSize:24, fontWeight:900, color:C.pink, lineHeight:1.3 }}>{casts.join("　/　")}</div>
+                </div>
+              );
+            })()}
             {/* 注文内容 */}
-            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>注文内容</div>
-            <div style={{ maxHeight:"40vh", overflowY:"auto", marginBottom:16 }}>
+            <div style={{ fontSize:13, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 注文内容</div>
+            <div style={{ maxHeight:"35vh", overflowY:"auto", marginBottom:18 }}>
               {submitResult.items.map((item,i)=>(
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"rgba(255,255,255,0.04)", borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:20 }}>{item.emoji}</span>
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:"rgba(255,255,255,0.05)", borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:24 }}>{item.emoji}</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
+                    <div style={{ fontSize:11, color:item.isGuest?C.purple:C.pink, fontWeight:700, marginTop:2 }}>
                       {item.isGuest?"🥂 ゲスト":`💗 ${item.castName}`}
                     </div>
-                    <div style={{ fontSize:12, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:C.textDim }}>×{item.qty||1}</div>
-                    {!item.noCount && <div style={{ fontSize:11, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>}
+                    <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>×{item.qty||1}</div>
                   </div>
                 </div>
               ))}
             </div>
-            {/* 閉じるボタン */}
-            <button onClick={()=>setSubmitResult(null)} style={{ width:"100%", padding:"14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:900, fontSize:16, cursor:"pointer" }}>
-              OK
+            <button onClick={()=>setSubmitResult(null)} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, fontSize:18, cursor:"pointer" }}>
+              OK 確認しました
             </button>
           </div>
         </div>
@@ -1113,6 +1169,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
   const [detailCast, setDetailCast] = useState(null);
   const [detailTable, setDetailTable] = useState(null); // 卓詳細
   const [statsTab, setStatsTab]     = useState("table");
+  const [moveFromTable, setMoveFromTable] = useState(null); // 卓移動元
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
@@ -1356,6 +1413,9 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                       <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯　▼ 詳細</div>
                     </button>
                     <div style={{ fontSize:20, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
+                    <button onClick={(e)=>{e.stopPropagation();setMoveFromTable(t);}} style={{ padding:"10px 12px", borderRadius:12, border:`1px solid ${C.teal}`, background:C.tealDim, color:C.teal, fontWeight:800, cursor:"pointer", fontSize:13, flexShrink:0, marginRight:6 }}>
+                      ↔️ 移動
+                    </button>
                     <button onClick={async()=>{
                       if(!window.confirm(`${t.label} の会計\n¥${t.total.toLocaleString()}\n\nキャストの売上はそのまま残ります`)) return;
                       await DB.checkoutTable(shopId, t.tableId);
@@ -1367,6 +1427,22 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                   {/* 卓詳細：注文内容 */}
                   {detailTable===t.tableId && (
                     <div style={{ borderTop:`1px solid ${C.border}`, padding:"10px 16px" }}>
+                      {/* 移動履歴 */}
+                      {(()=>{
+                        const allHist = [];
+                        todayBatches.filter(b=>String(b.tableId)===String(t.tableId)).forEach(b=>{
+                          (b.moveHistory||[]).forEach(h=>allHist.push(h));
+                        });
+                        const uniqHist = allHist.filter((h,i,a)=>a.findIndex(x=>x.from===h.from&&x.to===h.to&&x.time===h.time)===i);
+                        return uniqHist.length>0 && (
+                          <div style={{ padding:"8px 12px", background:C.tealDim, border:`1px solid ${C.tealBorder}`, borderRadius:10, marginBottom:10 }}>
+                            <div style={{ fontSize:11, color:C.teal, fontWeight:700, marginBottom:4 }}>↔️ 移動履歴</div>
+                            {uniqHist.map((h,hi)=>(
+                              <div key={hi} style={{ fontSize:12, color:C.teal }}>🕐 {h.time}　{h.from} → {h.to}</div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       {todayBatches.filter(b=>String(b.tableId)===String(t.tableId)).sort((a,b)=>a.time>b.time?1:-1).map((batch,bi)=>(
                         <div key={bi} style={{ marginBottom:10 }}>
                           <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>🕐 {batch.time}</div>
@@ -1418,6 +1494,37 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {/* 卓移動モーダル */}
+        {moveFromTable && (
+          <div onClick={()=>setMoveFromTable(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+            <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:420, background:"#130b28", borderRadius:20, padding:24 }}>
+              <div style={{ textAlign:"center", marginBottom:18 }}>
+                <div style={{ fontSize:28, marginBottom:6 }}>↔️</div>
+                <div style={{ fontSize:18, fontWeight:800, color:C.teal }}>卓を移動</div>
+                <div style={{ fontSize:13, color:C.textDim, marginTop:6 }}>{moveFromTable.label} の注文を移動先：</div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10 }}>
+                {settings.tables.filter(t=>typeof t.id==="number"&&String(t.id)!==String(moveFromTable.tableId)).map(t=>(
+                  <button key={t.id} onClick={async()=>{
+                    if(!window.confirm(`${moveFromTable.label} → ${t.label}\nに移動しますか？`)) return;
+                    await DB.moveTable(shopId, moveFromTable.tableId, t.id, t.label);
+                    setMoveFromTable(null);
+                  }} style={{ padding:"14px 8px", borderRadius:12, fontSize:14, fontWeight:800, border:`2px solid ${C.teal}`, background:C.tealDim, color:C.teal, cursor:"pointer" }}>{t.label}</button>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:16 }}>
+                {settings.tables.filter(t=>typeof t.id==="string"&&String(t.id)!==String(moveFromTable.tableId)).map(t=>(
+                  <button key={t.id} onClick={async()=>{
+                    if(!window.confirm(`${moveFromTable.label} → ${t.label}\nに移動しますか？`)) return;
+                    await DB.moveTable(shopId, moveFromTable.tableId, t.id, t.label);
+                    setMoveFromTable(null);
+                  }} style={{ padding:"14px 8px", borderRadius:12, fontSize:13, fontWeight:800, border:`2px solid ${C.teal}`, background:C.tealDim, color:C.teal, cursor:"pointer" }}>{t.label}</button>
+                ))}
+              </div>
+              <button onClick={()=>setMoveFromTable(null)} style={{ width:"100%", padding:"12px", borderRadius:12, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>キャンセル</button>
+            </div>
           </div>
         )}
         {tab==="stats" && detailCast && detail && (()=>{
