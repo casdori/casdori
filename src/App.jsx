@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 // Firebase設定
 // ══════════════════════════════════════════════════════════════
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, get, onValue, off, update } from "firebase/database";
+import { getDatabase, ref, set, get, onValue, off, update, runTransaction } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDcePGEoUQgjV2St4o2s85wmvB_YKYEcQw",
@@ -32,6 +32,8 @@ const DB = {
     try { await update(ref(db), { [`shops/${id}/reports/${r.date}`]: r }); } catch(e){console.error(e);}
   },
   // 指定日のレポートを集計し直して保存（archivedから完全に再集計）
+  // 注意：この関数は既存reportsを上書きします（手動再集計用）
+  // 通常は注文時に_addToReportで自動加算されるため使わない
   rebuildReport: async (shopId, targetDate) => {
     try {
       const [bs, as_] = await Promise.all([
@@ -46,19 +48,20 @@ const DB = {
       const tMap={}, cMap={};
       let totalCups=0;
       allB.forEach(b=>b.items.forEach(item=>{
-        if(!item.noCount){
-          const tk=String(b.tableId);
-          if(!tMap[tk]) tMap[tk]={tableLabel:b.tableLabel,total:0,cups:0};
-          tMap[tk].total+=(item.price||0)*(item.qty||1);
-          tMap[tk].cups+=(item.qty||1);
-        }
-        if(!item.noCount&&!item.isGuest&&item.castName){
+        if(item.noCount) return;
+        const tk=String(b.tableId);
+        if(!tMap[tk]) tMap[tk]={tableId:b.tableId, tableLabel:b.tableLabel,total:0,cups:0,items:[]};
+        tMap[tk].total+=(item.price||0)*(item.qty||1);
+        tMap[tk].cups+=(item.qty||1);
+        tMap[tk].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false,castName:item.castName||null,isGuest:!!item.isGuest});
+
+        if(!item.isGuest&&item.castName){
           if(!cMap[item.castName]) cMap[item.castName]={castName:item.castName,revenue:0,cups:0,items:[]};
           cMap[item.castName].revenue+=(item.price||0)*(item.qty||1);
           cMap[item.castName].cups+=(item.qty||1);
           cMap[item.castName].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false});
-          totalCups+=(item.qty||1);
         }
+        totalCups+=(item.qty||1);
       }));
       await update(ref(db),{[`shops/${shopId}/reports/${targetDate}`]:{
         date:targetDate, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
@@ -92,62 +95,67 @@ const DB = {
   // 内部関数：reports/日付 に注文アイテムを加算
   _addToReport: async (shopId, date, items, tableId, tableLabel) => {
     try {
-      const snap = await get(ref(db,`shops/${shopId}/reports/${date}`));
-      const cur = snap.exists() ? snap.val() : { date, tableReports:[], castReports:[], totalCups:0 };
-      const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
-      const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
-      let totalCups = cur.totalCups || 0;
+      // transactionで原子的に加算（複数端末同時送信でも消えない）
+      await runTransaction(ref(db,`shops/${shopId}/reports/${date}`), (cur) => {
+        if(cur === null) cur = { date, tableReports:[], castReports:[], totalCups:0 };
+        const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
+        const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
+        let totalCups = cur.totalCups || 0;
 
-      items.forEach(item=>{
-        if(item.noCount) return;
-        const tk = String(tableId);
-        if(!tMap[tk]) tMap[tk] = { tableId, tableLabel, total:0, cups:0, items:[] };
-        tMap[tk].total += (item.price||0)*(item.qty||1);
-        tMap[tk].cups  += (item.qty||1);
-        tMap[tk].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false, castName:item.castName||null, isGuest:!!item.isGuest });
+        items.forEach(item=>{
+          if(item.noCount) return;
+          const tk = String(tableId);
+          if(!tMap[tk]) tMap[tk] = { tableId, tableLabel, total:0, cups:0, items:[] };
+          tMap[tk].total += (item.price||0)*(item.qty||1);
+          tMap[tk].cups  += (item.qty||1);
+          tMap[tk].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false, castName:item.castName||null, isGuest:!!item.isGuest });
 
-        if(!item.isGuest && item.castName) {
-          if(!cMap[item.castName]) cMap[item.castName] = { castName:item.castName, revenue:0, cups:0, items:[] };
-          cMap[item.castName].revenue += (item.price||0)*(item.qty||1);
-          cMap[item.castName].cups    += (item.qty||1);
-          cMap[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
-        }
-        totalCups += (item.qty||1);
+          if(!item.isGuest && item.castName) {
+            if(!cMap[item.castName]) cMap[item.castName] = { castName:item.castName, revenue:0, cups:0, items:[] };
+            cMap[item.castName].revenue += (item.price||0)*(item.qty||1);
+            cMap[item.castName].cups    += (item.qty||1);
+            cMap[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
+          }
+          totalCups += (item.qty||1);
+        });
+
+        return { date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups };
       });
-
-      await update(ref(db), { [`shops/${shopId}/reports/${date}`]: {
-        date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
-      }});
     } catch(e){ console.error("_addToReport error:",e); }
   },
 
   // 内部関数：reports/日付 から注文アイテムを減算（削除時）
   _subtractFromReport: async (shopId, date, items, tableId) => {
     try {
-      const snap = await get(ref(db,`shops/${shopId}/reports/${date}`));
-      if(!snap.exists()) return;
-      const cur = snap.val();
-      const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
-      const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
-      let totalCups = cur.totalCups || 0;
+      // transactionで原子的に減算
+      await runTransaction(ref(db,`shops/${shopId}/reports/${date}`), (cur) => {
+        if(cur === null) return cur; // データなし
+        const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
+        const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
+        let totalCups = cur.totalCups || 0;
 
-      items.forEach(item=>{
-        if(item.noCount) return;
-        const tk = String(tableId);
-        if(tMap[tk]) {
-          tMap[tk].total = Math.max(0, tMap[tk].total - (item.price||0)*(item.qty||1));
-          tMap[tk].cups  = Math.max(0, tMap[tk].cups  - (item.qty||1));
-        }
-        if(!item.isGuest && item.castName && cMap[item.castName]) {
-          cMap[item.castName].revenue = Math.max(0, cMap[item.castName].revenue - (item.price||0)*(item.qty||1));
-          cMap[item.castName].cups    = Math.max(0, cMap[item.castName].cups    - (item.qty||1));
-        }
-        totalCups = Math.max(0, totalCups - (item.qty||1));
+        items.forEach(item=>{
+          if(item.noCount) return;
+          const tk = String(tableId);
+          if(tMap[tk]) {
+            tMap[tk].total = Math.max(0, tMap[tk].total - (item.price||0)*(item.qty||1));
+            tMap[tk].cups  = Math.max(0, tMap[tk].cups  - (item.qty||1));
+            // itemsからも一致するものを1件削除
+            const idx = tMap[tk].items.findIndex(x => x.drinkName===item.drinkName && (x.price||0)===(item.price||0) && (x.castName||null)===(item.castName||null) && !!x.nonAlco===!!item.nonAlco);
+            if(idx >= 0) tMap[tk].items.splice(idx, 1);
+          }
+          if(!item.isGuest && item.castName && cMap[item.castName]) {
+            cMap[item.castName].revenue = Math.max(0, cMap[item.castName].revenue - (item.price||0)*(item.qty||1));
+            cMap[item.castName].cups    = Math.max(0, cMap[item.castName].cups    - (item.qty||1));
+            // itemsからも一致するものを1件削除
+            const cidx = cMap[item.castName].items.findIndex(x => x.drinkName===item.drinkName && (x.price||0)===(item.price||0) && !!x.nonAlco===!!item.nonAlco);
+            if(cidx >= 0) cMap[item.castName].items.splice(cidx, 1);
+          }
+          totalCups = Math.max(0, totalCups - (item.qty||1));
+        });
+
+        return { date:cur.date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups };
       });
-
-      await update(ref(db), { [`shops/${shopId}/reports/${date}`]: {
-        date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
-      }});
     } catch(e){ console.error("_subtractFromReport error:",e); }
   },
   updateBatchStatus: async (shopId, batchId, status) => {
@@ -1339,64 +1347,32 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   useEffect(()=>DB.subscribe(shopId, setData), [shopId]);
 
-  // 03:00に前日分のレポートを自動保存（削除はしない）
+  // 今日のreportsをリアルタイム購読（集計画面用・絶対消えないデータ）
+  const [todayReport, setTodayReport] = useState(null);
+  const [currentBizDate, setCurrentBizDate] = useState(getBusinessDate());
+
+  // 日付変更チェック（1分ごと）
   useEffect(()=>{
-    // 指定日のレポートを集計し直して保存（archivedから完全に再集計）
-    const rebuildReport = async (targetDate) => {
-      try {
-        const [bs, as_] = await Promise.all([
-          get(ref(db, `shops/${shopId}/batches`)),
-          get(ref(db, `shops/${shopId}/archived`)),
-        ]);
-        const allB = [
-          ...( bs.exists() ? Object.values(bs.val()) : []),
-          ...(as_.exists() ? Object.values(as_.val()): []),
-        ].filter(b => b.businessDate === targetDate);
-        if(allB.length === 0) return false; // データなしならスキップ（既存レポートは触らない）
-        const tMap={}, cMap={};
-        let totalCups=0;
-        allB.forEach(b=>b.items.forEach(item=>{
-          if(!item.noCount){
-            const tk=String(b.tableId);
-            if(!tMap[tk]) tMap[tk]={tableLabel:b.tableLabel,total:0,cups:0};
-            tMap[tk].total+=(item.price||0)*(item.qty||1);
-            tMap[tk].cups+=(item.qty||1);
-          }
-          if(!item.noCount&&!item.isGuest&&item.castName){
-            if(!cMap[item.castName]) cMap[item.castName]={castName:item.castName,revenue:0,cups:0,items:[]};
-            cMap[item.castName].revenue+=(item.price||0)*(item.qty||1);
-            cMap[item.castName].cups+=(item.qty||1);
-            cMap[item.castName].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false});
-            totalCups+=(item.qty||1);
-          }
-        }));
-        await update(ref(db),{[`shops/${shopId}/reports/${targetDate}`]:{
-          date:targetDate, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
-        }});
-        return true;
-      } catch(e){ console.error("rebuild report error:",e); return false; }
-    };
-    // 起動時に前日と前々日のレポートを再構築（archivedに残っているデータから）
-    const saveYesterdayReport = async () => {
-      const yesterday  = getBusinessDate(-1);
-      const dayBefore  = getBusinessDate(-2);
-      await rebuildReport(yesterday);
-      await rebuildReport(dayBefore); // 2日前のも念のため再構築
-    };
-    // 起動時にチェック
-    saveYesterdayReport();
-    // 03:00に毎日実行
     const timer = setInterval(()=>{
-      const now = new Date();
-      if(now.getHours()===3 && now.getMinutes()===0) saveYesterdayReport();
+      const newDate = getBusinessDate();
+      if(newDate !== currentBizDate) setCurrentBizDate(newDate);
     }, 60*1000);
     return ()=>clearInterval(timer);
-  }, [shopId]);
+  }, [currentBizDate]);
 
+  // currentBizDateが変わるたびに新しい日付のreportsを購読
+  useEffect(()=>{
+    const r = ref(db, `shops/${shopId}/reports/${currentBizDate}`);
+    const h = snap => setTodayReport(snap.exists()?snap.val():null);
+    onValue(r, h);
+    return ()=>off(r,"value",h);
+  }, [shopId, currentBizDate]);
+
+  // 03:00に前日分のレポートを自動保存（削除はしない）
   const { batches, services, archived, sessions } = data;
-  const today = getBusinessDate();
+  // 営業日は currentBizDate を使用（日付変更時に自動切替）
+  const today = currentBizDate;
   // 今日の営業日のデータだけフィルター
-  // businessDateが今日と一致するデータのみ表示（未設定データは除外）
   const todayBatches  = batches.filter(b => b.businessDate === today);
   const todayArchived = (archived||[]).filter(b => b.businessDate === today);
   // batches（会計前）+ archived（会計済み）を合算してキャスト集計
@@ -1428,19 +1404,36 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
     prevPendingIds.current = new Set(pending.map(b=>b.batchId));
   }, [pending, tab]);
 
+  // キャスト別集計：reports/今日 から取得（reportsは消えないので絶対残る）
   const castMap = {};
   let totalSales=0, totalCups=0;
+  // reportsベースのキャスト集計
+  if(todayReport && todayReport.castReports) {
+    todayReport.castReports.forEach(c=>{
+      castMap[c.castName] = {
+        name: c.castName,
+        revenue: c.revenue || 0,
+        cups: c.cups || 0,
+        drinks: {},
+        rawItems: [],  // 削除はbatches/archived経由で行う
+      };
+      // ドリンク別集計
+      (c.items||[]).forEach(item=>{
+        const dk = item.drinkName + (item.nonAlco?" ❤️":"");
+        if(!castMap[c.castName].drinks[dk]) castMap[c.castName].drinks[dk] = { name:dk, emoji:item.emoji||"🍹", qty:0, total:0, price:item.price||0 };
+        castMap[c.castName].drinks[dk].qty   += (item.qty||1);
+        castMap[c.castName].drinks[dk].total += (item.price||0)*(item.qty||1);
+      });
+      totalSales += c.revenue||0;
+      totalCups  += c.cups||0;
+    });
+  }
+  // 削除用のrawItemsはallBatches（今日のbatches+archived）から（削除可能なもののみ）
   allBatches.forEach(b=>b.items.forEach((item,itemIdx)=>{
     if(item.noCount||item.isGuest||!item.castName) return;
-    if(!castMap[item.castName]) castMap[item.castName]={name:item.castName,revenue:0,cups:0,drinks:{},rawItems:[]};
-    const rev=(item.price||0)*(item.qty||1);
-    castMap[item.castName].revenue+=rev; castMap[item.castName].cups+=(item.qty||1);
-    castMap[item.castName].rawItems.push({...item, batchId:b.batchId, itemIndex:itemIdx, batchItems:b.items, isArchived:!!b.checkedOut});
-    totalSales+=rev; totalCups+=(item.qty||1);
-    const dk=item.drinkName+(item.nonAlco?" ❤️":"");
-    if(!castMap[item.castName].drinks[dk]) castMap[item.castName].drinks[dk]={name:dk,emoji:item.emoji||"🍹",qty:0,total:0,price:item.price||0};
-    castMap[item.castName].drinks[dk].qty+=(item.qty||1);
-    castMap[item.castName].drinks[dk].total+=rev;
+    if(castMap[item.castName]) {
+      castMap[item.castName].rawItems.push({...item, batchId:b.batchId, itemIndex:itemIdx, batchItems:b.items, isArchived:!!b.checkedOut});
+    }
   }));
   const casts  = Object.values(castMap).sort((a,b)=>a.name.localeCompare(b.name,"ja"));
   const maxRev = casts.length>0?casts[0].revenue:1;
@@ -2497,7 +2490,8 @@ function DailyReportPanel({ shopId, onExit }) {
         <div style={{ fontSize:16, fontWeight:800, color:C.gold }}>📊 {detail?`${detail} の詳細`:"日次レポート"}</div>
         {selDate && !detail && (
           <button onClick={async()=>{
-            if(!window.confirm(selDate + " のレポートを再集計しますか？\narchivedの全データから再計算します")) return;
+            if(!window.confirm("⚠️ 警告\n\n" + selDate + " のレポートを再集計します\n\nこの操作は既存の履歴データを\n完全に上書きします。\n\n削除した注文も復活します。\n\n本当に実行しますか？")) return;
+            if(!window.confirm("本当によろしいですか？\n再集計は取り消せません")) return;
             setRebuilding(true);
             const result = await DB.rebuildReport(shopId, selDate);
             setRebuilding(false);
