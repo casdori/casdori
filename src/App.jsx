@@ -31,6 +31,41 @@ const DB = {
   saveDailyReport: async (id, r) => {
     try { await update(ref(db), { [`shops/${id}/reports/${r.date}`]: r }); } catch(e){console.error(e);}
   },
+  // 指定日のレポートを集計し直して保存（archivedから完全に再集計）
+  rebuildReport: async (shopId, targetDate) => {
+    try {
+      const [bs, as_] = await Promise.all([
+        get(ref(db, `shops/${shopId}/batches`)),
+        get(ref(db, `shops/${shopId}/archived`)),
+      ]);
+      const allB = [
+        ...( bs.exists() ? Object.values(bs.val()) : []),
+        ...(as_.exists() ? Object.values(as_.val()): []),
+      ].filter(b => b.businessDate === targetDate);
+      if(allB.length === 0) return { success:false, count:0 };
+      const tMap={}, cMap={};
+      let totalCups=0;
+      allB.forEach(b=>b.items.forEach(item=>{
+        if(!item.noCount){
+          const tk=String(b.tableId);
+          if(!tMap[tk]) tMap[tk]={tableLabel:b.tableLabel,total:0,cups:0};
+          tMap[tk].total+=(item.price||0)*(item.qty||1);
+          tMap[tk].cups+=(item.qty||1);
+        }
+        if(!item.noCount&&!item.isGuest&&item.castName){
+          if(!cMap[item.castName]) cMap[item.castName]={castName:item.castName,revenue:0,cups:0,items:[]};
+          cMap[item.castName].revenue+=(item.price||0)*(item.qty||1);
+          cMap[item.castName].cups+=(item.qty||1);
+          cMap[item.castName].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false});
+          totalCups+=(item.qty||1);
+        }
+      }));
+      await update(ref(db),{[`shops/${shopId}/reports/${targetDate}`]:{
+        date:targetDate, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
+      }});
+      return { success:true, count:totalCups };
+    } catch(e){ console.error("rebuild report error:",e); return { success:false, count:0 }; }
+  },
   getReportIndex: async (id) => {
     try { const s=await get(ref(db,`shops/${id}/reports`)); return s.exists()?Object.keys(s.val()).sort().reverse():[]; } catch { return []; }
   },
@@ -44,7 +79,76 @@ const DB = {
     try { await set(ref(db,`shopRegistry/${s.shopId}`), s); } catch(e){console.error(e);}
   },
   addBatch: async (shopId, batch) => {
-    try { await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), {...batch, businessDate: getBusinessDate()}); } catch(e){console.error(e);}
+    try {
+      const bizDate = getBusinessDate();
+      const fullBatch = {...batch, businessDate: bizDate};
+      // ① batchesに保存（キッチン表示用）
+      await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), fullBatch);
+      // ② reportsにも追加（履歴・集計用・絶対消えない）
+      await DB._addToReport(shopId, bizDate, fullBatch.items, fullBatch.tableId, fullBatch.tableLabel);
+    } catch(e){console.error("addBatch error:",e);}
+  },
+
+  // 内部関数：reports/日付 に注文アイテムを加算
+  _addToReport: async (shopId, date, items, tableId, tableLabel) => {
+    try {
+      const snap = await get(ref(db,`shops/${shopId}/reports/${date}`));
+      const cur = snap.exists() ? snap.val() : { date, tableReports:[], castReports:[], totalCups:0 };
+      const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
+      const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
+      let totalCups = cur.totalCups || 0;
+
+      items.forEach(item=>{
+        if(item.noCount) return;
+        const tk = String(tableId);
+        if(!tMap[tk]) tMap[tk] = { tableId, tableLabel, total:0, cups:0, items:[] };
+        tMap[tk].total += (item.price||0)*(item.qty||1);
+        tMap[tk].cups  += (item.qty||1);
+        tMap[tk].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false, castName:item.castName||null, isGuest:!!item.isGuest });
+
+        if(!item.isGuest && item.castName) {
+          if(!cMap[item.castName]) cMap[item.castName] = { castName:item.castName, revenue:0, cups:0, items:[] };
+          cMap[item.castName].revenue += (item.price||0)*(item.qty||1);
+          cMap[item.castName].cups    += (item.qty||1);
+          cMap[item.castName].items.push({ drinkName:item.drinkName, emoji:item.emoji||"🍹", price:item.price||0, qty:item.qty||1, nonAlco:item.nonAlco||false });
+        }
+        totalCups += (item.qty||1);
+      });
+
+      await update(ref(db), { [`shops/${shopId}/reports/${date}`]: {
+        date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
+      }});
+    } catch(e){ console.error("_addToReport error:",e); }
+  },
+
+  // 内部関数：reports/日付 から注文アイテムを減算（削除時）
+  _subtractFromReport: async (shopId, date, items, tableId) => {
+    try {
+      const snap = await get(ref(db,`shops/${shopId}/reports/${date}`));
+      if(!snap.exists()) return;
+      const cur = snap.val();
+      const tMap = {}; (cur.tableReports||[]).forEach(t=>{ tMap[String(t.tableId||t.tableLabel)] = {...t, items:[...(t.items||[])]}; });
+      const cMap = {}; (cur.castReports||[]).forEach(c=>{ cMap[c.castName] = {...c, items:[...(c.items||[])]}; });
+      let totalCups = cur.totalCups || 0;
+
+      items.forEach(item=>{
+        if(item.noCount) return;
+        const tk = String(tableId);
+        if(tMap[tk]) {
+          tMap[tk].total = Math.max(0, tMap[tk].total - (item.price||0)*(item.qty||1));
+          tMap[tk].cups  = Math.max(0, tMap[tk].cups  - (item.qty||1));
+        }
+        if(!item.isGuest && item.castName && cMap[item.castName]) {
+          cMap[item.castName].revenue = Math.max(0, cMap[item.castName].revenue - (item.price||0)*(item.qty||1));
+          cMap[item.castName].cups    = Math.max(0, cMap[item.castName].cups    - (item.qty||1));
+        }
+        totalCups = Math.max(0, totalCups - (item.qty||1));
+      });
+
+      await update(ref(db), { [`shops/${shopId}/reports/${date}`]: {
+        date, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
+      }});
+    } catch(e){ console.error("_subtractFromReport error:",e); }
   },
   updateBatchStatus: async (shopId, batchId, status) => {
     try { await update(ref(db,`shops/${shopId}/batches/${batchId}`),{status}); } catch(e){console.error(e);}
@@ -97,15 +201,23 @@ const DB = {
       if(Object.keys(u).length>0) await update(ref(db),u);
     } catch(e){console.error(e);}
   },
-  // バッチ内の特定アイテムを削除（batches or archived どちらも対応）
+  // バッチ内の特定アイテムを削除（batches or archived どちらも対応・reportsからも減算）
   removeItemFromBatch: async (shopId, batchId, itemIndex, currentItems, isArchived=false) => {
     try {
       const basePath = isArchived ? `shops/${shopId}/archived` : `shops/${shopId}/batches`;
+      // 削除前にbatch情報を取得（businessDate・tableIdが必要）
+      const batchSnap = await get(ref(db, `${basePath}/${batchId}`));
+      const batchData = batchSnap.exists() ? batchSnap.val() : null;
+      const removedItem = currentItems[itemIndex];
       const newItems = currentItems.filter((_,i) => i !== itemIndex);
       if (newItems.length === 0) {
         await update(ref(db), { [`${basePath}/${batchId}`]: null });
       } else {
         await set(ref(db, `${basePath}/${batchId}/items`), newItems);
+      }
+      // reportsからも減算
+      if(batchData && batchData.businessDate && removedItem) {
+        await DB._subtractFromReport(shopId, batchData.businessDate, [removedItem], batchData.tableId);
       }
     } catch(e) { console.error(e); }
   },
@@ -1229,12 +1341,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
 
   // 03:00に前日分のレポートを自動保存（削除はしない）
   useEffect(()=>{
-    const saveYesterdayReport = async () => {
-      const yesterday = getBusinessDate(-1);
-      const today     = getBusinessDate();
-      // Firebaseで保存済みか確認（全端末共有・localStorage非依存）
-      const existSnap = await get(ref(db, `shops/${shopId}/reports/${yesterday}`));
-      if(existSnap.exists()) return; // 保存済みならスキップ
+    // 指定日のレポートを集計し直して保存（archivedから完全に再集計）
+    const rebuildReport = async (targetDate) => {
       try {
         const [bs, as_] = await Promise.all([
           get(ref(db, `shops/${shopId}/batches`)),
@@ -1243,8 +1351,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         const allB = [
           ...( bs.exists() ? Object.values(bs.val()) : []),
           ...(as_.exists() ? Object.values(as_.val()): []),
-        ].filter(b => b.businessDate === yesterday);
-        if(allB.length === 0) return; // データなしならスキップ
+        ].filter(b => b.businessDate === targetDate);
+        if(allB.length === 0) return false; // データなしならスキップ（既存レポートは触らない）
         const tMap={}, cMap={};
         let totalCups=0;
         allB.forEach(b=>b.items.forEach(item=>{
@@ -1262,10 +1370,18 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             totalCups+=(item.qty||1);
           }
         }));
-        await update(ref(db),{[`shops/${shopId}/reports/${yesterday}`]:{
-          date:yesterday, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
+        await update(ref(db),{[`shops/${shopId}/reports/${targetDate}`]:{
+          date:targetDate, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
         }});
-      } catch(e){ console.error("auto save report error:",e); }
+        return true;
+      } catch(e){ console.error("rebuild report error:",e); return false; }
+    };
+    // 起動時に前日と前々日のレポートを再構築（archivedに残っているデータから）
+    const saveYesterdayReport = async () => {
+      const yesterday  = getBusinessDate(-1);
+      const dayBefore  = getBusinessDate(-2);
+      await rebuildReport(yesterday);
+      await rebuildReport(dayBefore); // 2日前のも念のため再構築
     };
     // 起動時にチェック
     saveYesterdayReport();
@@ -2349,6 +2465,7 @@ function EditPeopleModal({ session, shopId, tableId, tableLabel, onClose }) {
 
 // ══════════════════════════════════════════════════════════════
 function DailyReportPanel({ shopId, onExit }) {
+  const [rebuilding, setRebuilding] = useState(false);
   const today = getBusinessDate();
   const [dates, setDates]     = useState([]);
   const [selDate, setSelDate] = useState(today);
@@ -2378,6 +2495,22 @@ function DailyReportPanel({ shopId, onExit }) {
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
         <button onClick={detail?()=>setDetail(null):onExit} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
         <div style={{ fontSize:16, fontWeight:800, color:C.gold }}>📊 {detail?`${detail} の詳細`:"日次レポート"}</div>
+        {selDate && !detail && (
+          <button onClick={async()=>{
+            if(!window.confirm(selDate + " のレポートを再集計しますか？\narchivedの全データから再計算します")) return;
+            setRebuilding(true);
+            const result = await DB.rebuildReport(shopId, selDate);
+            setRebuilding(false);
+            if(result.success) {
+              alert("✅ 再集計完了\n" + selDate + "：" + result.count + "杯");
+              DB.loadDailyReport(shopId, selDate).then(setReport);
+            } else {
+              alert("該当日のデータがarchivedにありません");
+            }
+          }} disabled={rebuilding} style={{ marginLeft:"auto", padding:"6px 12px", borderRadius:10, border:"1px solid " + C.teal, background:rebuilding?"transparent":C.tealDim, color:C.teal, cursor:rebuilding?"wait":"pointer", fontSize:12, fontWeight:700 }}>
+            {rebuilding?"集計中...":"🔄 再集計"}
+          </button>
+        )}
       </div>
       <div style={{ flex:1, padding:"16px", overflowY:"auto" }}>
         {dates.length>0 ? (
