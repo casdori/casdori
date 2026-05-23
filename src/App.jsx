@@ -32,43 +32,7 @@ const DB = {
     try { await update(ref(db), { [`shops/${id}/reports/${r.date}`]: r }); } catch(e){console.error(e);}
   },
   // 指定日のレポートを集計し直して保存（archivedから完全に再集計）
-  // 注意：この関数は既存reportsを上書きします（手動再集計用）
-  // 通常は注文時に_addToReportで自動加算されるため使わない
-  rebuildReport: async (shopId, targetDate) => {
-    try {
-      const [bs, as_] = await Promise.all([
-        get(ref(db, `shops/${shopId}/batches`)),
-        get(ref(db, `shops/${shopId}/archived`)),
-      ]);
-      const allB = [
-        ...( bs.exists() ? Object.values(bs.val()) : []),
-        ...(as_.exists() ? Object.values(as_.val()): []),
-      ].filter(b => b.businessDate === targetDate);
-      if(allB.length === 0) return { success:false, count:0 };
-      const tMap={}, cMap={};
-      let totalCups=0;
-      allB.forEach(b=>b.items.forEach(item=>{
-        if(item.noCount) return;
-        const tk=String(b.tableId);
-        if(!tMap[tk]) tMap[tk]={tableId:b.tableId, tableLabel:b.tableLabel,total:0,cups:0,items:[]};
-        tMap[tk].total+=(item.price||0)*(item.qty||1);
-        tMap[tk].cups+=(item.qty||1);
-        tMap[tk].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false,castName:item.castName||null,isGuest:!!item.isGuest});
 
-        if(!item.isGuest&&item.castName){
-          if(!cMap[item.castName]) cMap[item.castName]={castName:item.castName,revenue:0,cups:0,items:[]};
-          cMap[item.castName].revenue+=(item.price||0)*(item.qty||1);
-          cMap[item.castName].cups+=(item.qty||1);
-          cMap[item.castName].items.push({drinkName:item.drinkName,emoji:item.emoji||"🍹",price:item.price||0,qty:item.qty||1,nonAlco:item.nonAlco||false});
-        }
-        totalCups+=(item.qty||1);
-      }));
-      await update(ref(db),{[`shops/${shopId}/reports/${targetDate}`]:{
-        date:targetDate, tableReports:Object.values(tMap), castReports:Object.values(cMap), totalCups
-      }});
-      return { success:true, count:totalCups };
-    } catch(e){ console.error("rebuild report error:",e); return { success:false, count:0 }; }
-  },
   getReportIndex: async (id) => {
     try { const s=await get(ref(db,`shops/${id}/reports`)); return s.exists()?Object.keys(s.val()).sort().reverse():[]; } catch { return []; }
   },
@@ -2458,7 +2422,6 @@ function EditPeopleModal({ session, shopId, tableId, tableLabel, onClose }) {
 
 // ══════════════════════════════════════════════════════════════
 function DailyReportPanel({ shopId, onExit }) {
-  const [rebuilding, setRebuilding] = useState(false);
   const today = getBusinessDate();
   const [dates, setDates]     = useState([]);
   const [selDate, setSelDate] = useState(today);
@@ -2488,23 +2451,7 @@ function DailyReportPanel({ shopId, onExit }) {
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)" }}>
         <button onClick={detail?()=>setDetail(null):onExit} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
         <div style={{ fontSize:16, fontWeight:800, color:C.gold }}>📊 {detail?`${detail} の詳細`:"日次レポート"}</div>
-        {selDate && !detail && (
-          <button onClick={async()=>{
-            if(!window.confirm("⚠️ 警告\n\n" + selDate + " のレポートを再集計します\n\nこの操作は既存の履歴データを\n完全に上書きします。\n\n削除した注文も復活します。\n\n本当に実行しますか？")) return;
-            if(!window.confirm("本当によろしいですか？\n再集計は取り消せません")) return;
-            setRebuilding(true);
-            const result = await DB.rebuildReport(shopId, selDate);
-            setRebuilding(false);
-            if(result.success) {
-              alert("✅ 再集計完了\n" + selDate + "：" + result.count + "杯");
-              DB.loadDailyReport(shopId, selDate).then(setReport);
-            } else {
-              alert("該当日のデータがarchivedにありません");
-            }
-          }} disabled={rebuilding} style={{ marginLeft:"auto", padding:"6px 12px", borderRadius:10, border:"1px solid " + C.teal, background:rebuilding?"transparent":C.tealDim, color:C.teal, cursor:rebuilding?"wait":"pointer", fontSize:12, fontWeight:700 }}>
-            {rebuilding?"集計中...":"🔄 再集計"}
-          </button>
-        )}
+
       </div>
       <div style={{ flex:1, padding:"16px", overflowY:"auto" }}>
         {dates.length>0 ? (
