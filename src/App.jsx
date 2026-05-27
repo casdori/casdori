@@ -775,9 +775,42 @@ function CastTerminal({ onExit, settings, shopId }) {
     setQtyModal(false); setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setNonAlco(false); setQty(1); setDrinkOpt("普通");
   }
   function sendSvc(svc) { DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,...svc,time:nowShort(),status:"pending"}); flash(`${svc.name} 送信`); }
+  // サービスをカートに追加（無料・後でサービスとして送信）
+  function addServiceToCart(svc) {
+    setCart(p => [...p, {
+      id: uid(),
+      isService: true,
+      drinkName: svc.name,
+      emoji: svc.emoji,
+      qty: 1,
+      price: 0,
+      noCount: true,
+      castName: isGuest ? null : activeCast,
+      isGuest,
+      svcId: svc.id,
+    }]);
+    flash(`${svc.name} をカートに追加`);
+  }
   function submit() {
     const sentItems = [...cart];
-    DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:sentItems});
+    // サービスはサービスとして個別送信、ドリンクはbatch送信
+    const services = sentItems.filter(i => i.isService);
+    const drinks   = sentItems.filter(i => !i.isService);
+    services.forEach(s=>{
+      DB.addService(shopId, {
+        id: uid(),
+        tableId,
+        tableLabel: tInfo?.label,
+        name: s.drinkName,
+        emoji: s.emoji,
+        time: nowShort(),
+        status: "pending",
+        castName: s.castName || (s.isGuest ? "ゲスト" : activeCast),
+      });
+    });
+    if(drinks.length > 0) {
+      DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:drinks});
+    }
     setSubmitResult({ tableLabel:tInfo?.label, items:sentItems, time:nowShort() });
     setCart([]); setConfirm(false);
   }
@@ -879,15 +912,6 @@ function CastTerminal({ onExit, settings, shopId }) {
       </div>
       {notif && <div style={{ margin:"10px 16px", padding:"10px 14px", background:C.greenDim, border:`1px solid ${C.green}`, borderRadius:12, color:C.green, fontSize:14, fontWeight:700 }}>{notif}</div>}
       <div style={{ padding:"16px", overflowY:"auto", flex:1 }}>
-        <div style={{ fontSize:12, color:C.teal, fontWeight:700, marginBottom:8 }}>✨ サービス</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:20 }}>
-          {SERVICES.map(svc=>(
-            <button key={svc.id} onClick={()=>sendSvc(svc)} style={{ padding:"12px 4px", borderRadius:12, border:`1px solid ${C.tealBorder}`, background:C.tealDim, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-              <span style={{ fontSize:22 }}>{svc.emoji}</span>
-              <span style={{ fontSize:10, fontWeight:700, color:C.teal }}>{svc.name}</span>
-            </button>
-          ))}
-        </div>
         {cart.length>0 && (
           <div style={{ marginBottom:20 }}>
             <div style={{ fontSize:12, color:C.gold, fontWeight:700, marginBottom:8 }}>🛒 カート（{cart.length}件）</div>
@@ -991,6 +1015,16 @@ function CastTerminal({ onExit, settings, shopId }) {
       {/* ヘッダー分スペース確保 */}
       <div style={{ height:72 }} />
       <div style={{ flex:1, padding:"16px", overflowY:"auto", paddingBottom: myCartItems.length>0 ? 180 : 100 }}>
+        {/* ✨ サービス（カートに追加できる・無料） */}
+        <div style={{ fontSize:12, color:C.teal, fontWeight:700, marginBottom:8 }}>✨ サービス（無料）</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:20 }}>
+          {SERVICES.map(svc=>(
+            <button key={svc.id} onClick={()=>addServiceToCart(svc)} style={{ padding:"12px 4px", borderRadius:12, border:`1px solid ${C.tealBorder}`, background:C.tealDim, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:22 }}>{svc.emoji}</span>
+              <span style={{ fontSize:10, fontWeight:700, color:C.teal }}>{svc.name}</span>
+            </button>
+          ))}
+        </div>
         {isGuest && (
           <div style={{ display:"flex", gap:8, marginBottom:16 }}>
             {["base","single","pitcher"].map(t=>(
@@ -1429,7 +1463,12 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>
                   {pendSvc.map(s=>(
                     <div key={s.id} style={{ padding:"12px", background:C.tealDim, border:`1px solid ${C.tealBorder}`, borderRadius:14 }}>
-                      <div style={{ fontSize:12, color:C.textDim, marginBottom:2 }}>{s.tableLabel}</div>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                        <div style={{ fontSize:12, color:C.textDim }}>{s.tableLabel}</div>
+                        {s.castName && (
+                          <div style={{ fontSize:11, color:C.pink, fontWeight:700, padding:"1px 6px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:6 }}>💗 {s.castName}</div>
+                        )}
+                      </div>
                       <div style={{ fontSize:14, fontWeight:700, color:C.teal, marginBottom:8 }}>{s.emoji} {s.name}</div>
                       <button onClick={()=>DB.updateServiceStatus(shopId,s.id,"done")} style={{ width:"100%", padding:"8px", borderRadius:10, border:"none", background:C.teal, color:"#0a0618", fontWeight:700, cursor:"pointer", fontSize:13 }}>✓ 対応済み</button>
                     </div>
