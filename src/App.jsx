@@ -713,7 +713,7 @@ function Landing({ onSelect, shopName, adminPin }) {
 }
 
 function CastTerminal({ onExit, settings, shopId }) {
-  const [phase, setPhase]           = useState("tableSetup");
+  const [phase, setPhase]           = useState("castSelect");
   const [tableId, setTableId]       = useState(null);
   const [activeCast, setActiveCast] = useState(null);
   const [isGuest, setIsGuest]       = useState(false);
@@ -770,14 +770,15 @@ function CastTerminal({ onExit, settings, shopId }) {
   function addCart() {
     if(!resolved) return;
     const optLabel = drinkOpt!=="普通" ? ` (${drinkOpt})` : "";
-    setCart(p=>[...p,{id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name+optLabel,emoji:resolved.emoji,price:isGuest?0:resolved.price,qty,nonAlco,noCount:isGuest,special:resolved.special||false}]);
-    flash(`${isGuest?"ゲスト":activeCast} → ${resolved.name}${optLabel} ×${qty} 追加`);
+    const item = {id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name+optLabel,emoji:resolved.emoji,price:isGuest?0:resolved.price,qty,nonAlco,noCount:isGuest,special:resolved.special||false};
+    setCart(p=>[...p,item]);
+    flash(`${resolved.name}${optLabel} ×${qty} カートに追加`);
     setQtyModal(false); setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setNonAlco(false); setQty(1); setDrinkOpt("普通");
   }
   function sendSvc(svc) { DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,...svc,time:nowShort(),status:"pending"}); flash(`${svc.name} 送信`); }
   // サービスをカートに追加（無料・後でサービスとして送信）
   function addServiceToCart(svc) {
-    setCart(p => [...p, {
+    const item = {
       id: uid(),
       isService: true,
       drinkName: svc.name,
@@ -788,7 +789,8 @@ function CastTerminal({ onExit, settings, shopId }) {
       castName: isGuest ? null : activeCast,
       isGuest,
       svcId: svc.id,
-    }]);
+    };
+    setCart(p => [...p, item]);
     flash(`${svc.name} をカートに追加`);
   }
   function submit() {
@@ -813,9 +815,10 @@ function CastTerminal({ onExit, settings, shopId }) {
     }
     setSubmitResult({ tableLabel:tInfo?.label, items:sentItems, time:nowShort() });
     setCart([]); setConfirm(false);
+    setTableId(null); // 送信後は卓をリセット（毎回確実に選び直し）
   }
 
-  if (phase==="tableSetup") return (
+  if (phase==="tableSelect" || phase==="tableSetup") return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ width:"100%", maxWidth:400 }}>
         {/* 出前メニューボタン */}
@@ -823,9 +826,9 @@ function CastTerminal({ onExit, settings, shopId }) {
           🛵 出前メニューを見る
         </button>
         <div style={{ textAlign:"center", marginBottom:24 }}>
-          <div style={{ fontSize:32, color:C.gold }}>♛</div>
-          <div style={{ fontSize:18, fontWeight:900, color:C.gold }}>CAST TERMINAL</div>
-          <div style={{ fontSize:13, color:C.textDim, marginTop:8 }}>テーブル番号を選択</div>
+          <div style={{ fontSize:36, marginBottom:6 }}>🍽️</div>
+          <div style={{ fontSize:20, fontWeight:900, color:C.gold }}>送信先の卓を選択</div>
+          <div style={{ fontSize:13, color:C.textDim, marginTop:8 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}　{cart.length}件</div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
           {tables.filter(t=>typeof t.id==="number").map(t=>(
@@ -837,10 +840,13 @@ function CastTerminal({ onExit, settings, shopId }) {
             <button key={t.id} onClick={()=>setTableId(t.id)} style={{ padding:"16px 8px", borderRadius:14, fontSize:15, fontWeight:800, border:`2px solid ${tableId===t.id?C.gold:C.border}`, background:tableId===t.id?C.goldDim:C.bgCard, color:tableId===t.id?C.gold:C.textDim, cursor:"pointer" }}>{t.label}</button>
           ))}
         </div>
-        <button disabled={!tableId} onClick={()=>setPhase("castSelect")} style={{ width:"100%", padding:"16px", borderRadius:16, border:"none", background:tableId?C.gold:"rgba(255,255,255,0.1)", color:tableId?"#0a0618":C.textDim, fontWeight:800, fontSize:16, cursor:tableId?"pointer":"not-allowed" }}>
-          {tableId?`${tInfo?.label} で開始 →`:"テーブルを選択してください"}
+        <button disabled={!tableId} onClick={()=>{
+          setPhase("drink");
+          setConfirm(true);
+        }} style={{ width:"100%", padding:"16px", borderRadius:16, border:"none", background:tableId?C.gold:"rgba(255,255,255,0.1)", color:tableId?"#0a0618":C.textDim, fontWeight:800, fontSize:16, cursor:tableId?"pointer":"not-allowed" }}>
+          {tableId?`✅ ${tInfo?.label} に送信内容を確認`:"卓を選んでください"}
         </button>
-        <button onClick={onExit} style={{ width:"100%", marginTop:10, padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>← 戻る</button>
+        <button onClick={()=>setPhase("drink")} style={{ width:"100%", marginTop:10, padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>← ドリンク選択に戻る</button>
       </div>
       {/* 出前メニューモーダル */}
       {deliveryModal && (
@@ -1006,8 +1012,8 @@ function CastTerminal({ onExit, settings, shopId }) {
       <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:50, background:"rgba(8,5,15,0.98)", borderBottom:`3px solid ${C.gold}`, backdropFilter:"blur(10px)" }}>
         <div style={{ background:`linear-gradient(135deg,rgba(232,184,75,0.18),rgba(232,184,75,0.06))`, padding:"10px 16px", display:"flex", alignItems:"center" }}>
           <div style={{ flex:1, textAlign:"center" }}>
-            <div style={{ fontSize:26, fontWeight:900, color:C.gold, lineHeight:1 }}>{tInfo?.label}</div>
-            <div style={{ fontSize:13, color:acol, fontWeight:700, marginTop:2 }}>{isGuest?"🥂 ゲスト注文":`💗 ${activeCast}`}</div>
+            <div style={{ fontSize:22, fontWeight:900, color:acol, lineHeight:1.2 }}>{isGuest?"🥂 ゲスト注文":`💗 ${activeCast}`}</div>
+            <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>カートに追加して送信ボタン</div>
           </div>
           <button onClick={()=>setPhase("castSelect")} style={{ position:"absolute", right:16, top:"50%", transform:"translateY(-50%)", padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>戻る</button>
         </div>
@@ -1105,8 +1111,8 @@ function CastTerminal({ onExit, settings, shopId }) {
                 );
               })}
             </div>
-            <button onClick={()=>setConfirm(true)} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
-              ✅ {myCartItems.length}件を送信する
+            <button onClick={()=>{ setTableId(null); setPhase("tableSelect"); }} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
+              ✅ {myCartItems.length}件 → 卓選択へ
             </button>
           </div>
         )}
@@ -1162,7 +1168,8 @@ function CastTerminal({ onExit, settings, shopId }) {
             </div>
             {((settings?.castFavs||{})[activeCast]||[]).map((fav,i)=>(
               <button key={i} onClick={()=>{
-                setCart(p=>[...p,{id:uid(),castName:activeCast,isGuest:false,drinkName:fav.drinkName,emoji:fav.emoji||"🍹",price:fav.price||0,qty:1,nonAlco:fav.nonAlco||false,noCount:false,special:false}]);
+                const favItem = {id:uid(),castName:activeCast,isGuest:false,drinkName:fav.drinkName,emoji:fav.emoji||"🍹",price:fav.price||0,qty:1,nonAlco:fav.nonAlco||false,noCount:false,special:false};
+                setCart(p=>[...p,favItem]);
                 flash(`${activeCast} → ${fav.drinkName} 追加`);
                 setFavModal(false);
               }} style={{ width:"100%", display:"flex", alignItems:"center", gap:14, padding:"16px", background:C.bgCard, border:`1px solid ${C.goldBorder}`, borderRadius:16, cursor:"pointer", marginBottom:10 }}>
@@ -1217,60 +1224,24 @@ function CastTerminal({ onExit, settings, shopId }) {
               ))}
             </div>
             <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setConfirm(false)} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>戻る</button>
+              <button onClick={()=>{ setConfirm(false); setPhase("tableSelect"); }} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>← 卓選択へ</button>
               <button onClick={submit} style={{ flex:2, padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17 }}>✅ 送信する</button>
             </div>
           </div>
         </div>
       )}
-      {/* 送信完了モーダル（大きく目立つように） */}
-      {submitResult && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ width:"100%", maxWidth:460, background:"#0d1f10", border:`3px solid ${C.green}`, borderRadius:24, padding:24, boxShadow:`0 0 60px rgba(62,207,142,0.5)` }}>
-            <div style={{ textAlign:"center", marginBottom:18 }}>
+      {/* 送信完了モーダル（シンプル・1.5秒で自動消去） */}
+      {submitResult && (()=>{
+        setTimeout(()=>setSubmitResult(null), 1500);
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16, pointerEvents:"none" }}>
+            <div style={{ padding:"40px 56px", background:"#0d1f10", border:`3px solid ${C.green}`, borderRadius:24, boxShadow:`0 0 60px rgba(62,207,142,0.5)`, textAlign:"center" }}>
               <div style={{ fontSize:60, marginBottom:8 }}>✅</div>
               <div style={{ fontSize:24, fontWeight:900, color:C.green }}>送信しました！</div>
-              <div style={{ fontSize:14, color:C.textDim, marginTop:4 }}>{submitResult.time}</div>
             </div>
-            {/* 卓番号（大きく） */}
-            <div style={{ padding:"16px", background:"rgba(232,184,75,0.18)", border:`2px solid ${C.gold}`, borderRadius:16, marginBottom:12, textAlign:"center" }}>
-              <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>送信先の卓</div>
-              <div style={{ fontSize:42, fontWeight:900, color:C.gold, lineHeight:1 }}>{submitResult.tableLabel}</div>
-            </div>
-            {/* キャスト名（大きく） */}
-            {(()=>{ 
-              const casts = [...new Set(submitResult.items.map(i=>i.isGuest?"🥂 ゲスト":`💗 ${i.castName}`))];
-              return (
-                <div style={{ padding:"14px", background:"rgba(240,109,171,0.15)", border:`2px solid ${C.pink}`, borderRadius:16, marginBottom:14, textAlign:"center" }}>
-                  <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>キャスト</div>
-                  <div style={{ fontSize:24, fontWeight:900, color:C.pink, lineHeight:1.3 }}>{casts.join("　/　")}</div>
-                </div>
-              );
-            })()}
-            {/* 注文内容 */}
-            <div style={{ fontSize:13, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 注文内容</div>
-            <div style={{ maxHeight:"35vh", overflowY:"auto", marginBottom:18 }}>
-              {submitResult.items.map((item,i)=>(
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", background:"rgba(255,255,255,0.05)", borderRadius:12, marginBottom:6, border:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:24 }}>{item.emoji}</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{item.drinkName}{item.nonAlco?" ❤️":""}</div>
-                    <div style={{ fontSize:11, color:item.isGuest?C.purple:C.pink, fontWeight:700, marginTop:2 }}>
-                      {item.isGuest?"🥂 ゲスト":`💗 ${item.castName}`}
-                    </div>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>×{item.qty||1}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button onClick={()=>setSubmitResult(null)} style={{ width:"100%", padding:"18px", borderRadius:16, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, fontSize:18, cursor:"pointer" }}>
-              OK 確認しました
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {/* 数量モーダル */}
       {qtyModal && resolved && (
         <div onClick={()=>setQtyModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
