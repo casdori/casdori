@@ -1517,11 +1517,21 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             )}
             {done.length>0 && (
               <div style={{ marginTop:20 }}>
-                <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>✓ 提供済み</div>
-                {done.slice(0,5).map(b=>(
-                  <div key={b.batchId} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", background:C.bgCard, borderRadius:10, marginBottom:6, opacity:0.6 }}>
-                    <span style={{ fontSize:13, color:C.textDim }}>{b.tableLabel}</span>
-                    <span style={{ fontSize:12, color:C.textDim, flex:1 }}>{b.items.map(i=>i.drinkName).join("・")}</span>
+                <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>✓ 提供済み（直近10件）</div>
+                {[...done].sort((a,b)=>a.time>b.time?-1:1).slice(0,10).map(b=>(
+                  <div key={b.batchId} style={{ padding:"10px 14px", background:C.bgCard, borderRadius:10, marginBottom:6, opacity:0.75, border:`1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                      <span style={{ fontSize:11, color:C.textDim }}>🕐 {b.time}</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:C.gold }}>{b.tableLabel}</span>
+                    </div>
+                    {b.items.map((item,ii)=>(
+                      <div key={ii} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:C.textDim, paddingLeft:4 }}>
+                        <span>{item.emoji}</span>
+                        <span style={{ color:item.isGuest?C.purple:C.pink, fontWeight:700 }}>{item.isGuest?"ゲスト":item.castName}</span>
+                        <span style={{ flex:1 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
+                        <span>×{item.qty||1}</span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
