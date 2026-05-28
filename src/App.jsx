@@ -758,6 +758,60 @@ function CastTerminal({ onExit, settings, shopId }) {
   })();
 
   function flash(m) { setNotif(m); setTimeout(()=>setNotif(null),2500); }
+  // 出前メニューモーダル（複数画面で共通利用）
+  const deliveryModalJSX = deliveryModal && (
+    <div onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#0d0820", borderRadius:"24px 24px 0 0", maxHeight:"85vh", display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"20px 20px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+          {selDelivery && <button onClick={()=>setSelDelivery(null)} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>}
+          <div style={{ flex:1, fontSize:16, fontWeight:800, color:C.teal }}>
+            🛵 {selDelivery ? `${DELIVERY_MENUS[selDelivery].icon} ${selDelivery}` : "出前メニュー"}
+          </div>
+          <button onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ padding:"6px 10px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>✕</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+          {!selDelivery ? (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {Object.entries(DELIVERY_MENUS).map(([name, menu])=>(
+                <button key={name} onClick={()=>setSelDelivery(name)} style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 20px", background:C.bgCard, border:`1px solid ${C.tealBorder}`, borderRadius:16, cursor:"pointer" }}>
+                  <span style={{ fontSize:28 }}>{menu.icon}</span>
+                  <div style={{ textAlign:"left" }}>
+                    <div style={{ fontSize:16, fontWeight:700, color:C.teal }}>{name}</div>
+                    {menu.tel && <div style={{ fontSize:12, color:C.textDim, marginTop:2 }}>📞 {menu.tel}</div>}
+                  </div>
+                  <span style={{ marginLeft:"auto", color:C.teal, fontSize:18 }}>→</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div>
+              {DELIVERY_MENUS[selDelivery].tel && (
+                <div style={{ padding:"10px 14px", background:C.tealDim, border:`1px solid ${C.tealBorder}`, borderRadius:12, marginBottom:14, fontSize:14, color:C.teal, fontWeight:700 }}>
+                  📞 {DELIVERY_MENUS[selDelivery].tel}
+                </div>
+              )}
+              {DELIVERY_MENUS[selDelivery].sections.map((sec, si)=>(
+                <div key={si} style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.gold, marginBottom:4 }}>{sec.title}</div>
+                  {sec.note && <div style={{ fontSize:11, color:C.textDim, marginBottom:8 }}>{sec.note}</div>}
+                  {sec.items.map((item, ii)=>(
+                    <div key={ii} style={{ padding:"8px 12px", background:C.bgCard, borderRadius:8, marginBottom:4, fontSize:13, color:C.text }}>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {DELIVERY_MENUS[selDelivery].note && (
+                <div style={{ padding:"10px 14px", background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`, borderRadius:10, fontSize:11, color:C.textDim }}>
+                  {DELIVERY_MENUS[selDelivery].note}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
   function goToDrink(name, guest) {
     setActiveCast(guest?null:name); setIsGuest(guest);
     setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setPhase("drink");
@@ -795,36 +849,39 @@ function CastTerminal({ onExit, settings, shopId }) {
   }
   function submit() {
     const sentItems = [...cart];
-    // サービスはサービスとして個別送信、ドリンクはbatch送信
+    // サービス・伝達事項・ドリンクに分離
     const services = sentItems.filter(i => i.isService);
-    const drinks   = sentItems.filter(i => !i.isService);
+    const messages = sentItems.filter(i => i.isMessage);
+    const drinks   = sentItems.filter(i => !i.isService && !i.isMessage);
+    // サービス送信
     services.forEach(s=>{
       DB.addService(shopId, {
-        id: uid(),
-        tableId,
-        tableLabel: tInfo?.label,
-        name: s.drinkName,
-        emoji: s.emoji,
-        time: nowShort(),
-        status: "pending",
+        id: uid(), tableId, tableLabel: tInfo?.label,
+        name: s.drinkName, emoji: s.emoji, time: nowShort(), status: "pending",
         castName: s.castName || (s.isGuest ? "ゲスト" : activeCast),
       });
     });
+    // 伝達事項送信（卓・キャスト名つき）
+    messages.forEach(m=>{
+      DB.addService(shopId, {
+        id: uid(), tableId, tableLabel: tInfo?.label,
+        name: m.drinkName, emoji: "📝", time: nowShort(), status: "pending",
+        isMessage: true,
+        castName: m.castName || (m.isGuest ? "ゲスト" : activeCast),
+      });
+    });
+    // ドリンク送信
     if(drinks.length > 0) {
       DB.addBatch(shopId,{batchId:uid(),tableId,tableLabel:tInfo?.label,time:nowShort(),status:"pending",items:drinks});
     }
     setSubmitResult({ tableLabel:tInfo?.label, items:sentItems, time:nowShort() });
     setCart([]); setConfirm(false);
-    setTableId(null); // 送信後は卓をリセット（毎回確実に選び直し）
+    setTableId(null);
   }
 
   if (phase==="tableSelect" || phase==="tableSetup") return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ width:"100%", maxWidth:400 }}>
-        {/* 出前メニューボタン */}
-        <button onClick={()=>setDeliveryModal(true)} style={{ width:"100%", marginBottom:16, padding:"12px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-          🛵 出前メニューを見る
-        </button>
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ fontSize:36, marginBottom:6 }}>🍽️</div>
           <div style={{ fontSize:20, fontWeight:900, color:C.gold }}>送信先の卓を選択</div>
@@ -849,70 +906,15 @@ function CastTerminal({ onExit, settings, shopId }) {
         <button onClick={()=>setPhase("drink")} style={{ width:"100%", marginTop:10, padding:"12px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>← ドリンク選択に戻る</button>
       </div>
       {/* 出前メニューモーダル */}
-      {deliveryModal && (
-        <div onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#0d0820", borderRadius:"24px 24px 0 0", maxHeight:"85vh", display:"flex", flexDirection:"column" }}>
-            <div style={{ padding:"20px 20px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
-              {selDelivery && <button onClick={()=>setSelDelivery(null)} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>}
-              <div style={{ flex:1, fontSize:16, fontWeight:800, color:C.teal }}>
-                🛵 {selDelivery ? `${DELIVERY_MENUS[selDelivery].icon} ${selDelivery}` : "出前メニュー"}
-              </div>
-              <button onClick={()=>{setDeliveryModal(false);setSelDelivery(null);}} style={{ padding:"6px 10px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>✕</button>
-            </div>
-            <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
-              {!selDelivery ? (
-                // 店舗一覧
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {Object.entries(DELIVERY_MENUS).map(([name, menu])=>(
-                    <button key={name} onClick={()=>setSelDelivery(name)} style={{ display:"flex", alignItems:"center", gap:14, padding:"16px 20px", background:C.bgCard, border:`1px solid ${C.tealBorder}`, borderRadius:16, cursor:"pointer" }}>
-                      <span style={{ fontSize:28 }}>{menu.icon}</span>
-                      <div style={{ textAlign:"left" }}>
-                        <div style={{ fontSize:16, fontWeight:700, color:C.teal }}>{name}</div>
-                        {menu.tel && <div style={{ fontSize:12, color:C.textDim, marginTop:2 }}>📞 {menu.tel}</div>}
-                      </div>
-                      <span style={{ marginLeft:"auto", color:C.teal, fontSize:18 }}>→</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                // メニュー詳細
-                <div>
-                  {DELIVERY_MENUS[selDelivery].tel && (
-                    <div style={{ padding:"10px 14px", background:C.tealDim, border:`1px solid ${C.tealBorder}`, borderRadius:12, marginBottom:14, fontSize:14, color:C.teal, fontWeight:700 }}>
-                      📞 {DELIVERY_MENUS[selDelivery].tel}
-                    </div>
-                  )}
-                  {DELIVERY_MENUS[selDelivery].sections.map((sec, si)=>(
-                    <div key={si} style={{ marginBottom:20 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:C.gold, marginBottom:4 }}>{sec.title}</div>
-                      {sec.note && <div style={{ fontSize:11, color:C.textDim, marginBottom:8 }}>{sec.note}</div>}
-                      {sec.items.map((item, ii)=>(
-                        <div key={ii} style={{ padding:"8px 12px", background:C.bgCard, borderRadius:8, marginBottom:4, fontSize:13, color:C.text }}>
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  {DELIVERY_MENUS[selDelivery].note && (
-                    <div style={{ padding:"10px 14px", background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`, borderRadius:10, fontSize:11, color:C.textDim }}>
-                      {DELIVERY_MENUS[selDelivery].note}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {deliveryModalJSX}
     </div>
   );
 
   if (phase==="castSelect") return (
     <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", padding:"14px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", gap:10 }}>
-        <div style={{ padding:"4px 12px", background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:20, fontSize:14, fontWeight:800, color:C.gold }}>{tInfo?.label}</div>
+        <div style={{ fontSize:15, fontWeight:800, color:C.gold }}>🍹 CASDORI</div>
         <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
-          {cart.length>0 && <button onClick={()=>setConfirm(true)} style={{ padding:"6px 14px", borderRadius:14, border:"none", background:C.green, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:13 }}>送信 {cart.length}件</button>}
           <button onClick={onExit} style={{ padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>終了</button>
         </div>
       </div>
@@ -947,12 +949,18 @@ function CastTerminal({ onExit, settings, shopId }) {
           })}
         </div>
         {(()=>{const cnt=cart.filter(i=>i.isGuest).length; return (
-          <button onClick={()=>goToDrink(null,true)} style={{ width:"100%", padding:"14px 20px", borderRadius:14, cursor:"pointer", border:`1px solid ${cnt>0?C.purple:C.border}`, background:cnt>0?C.purpleDim:C.bgCard, display:"flex", alignItems:"center", gap:12 }}>
+          <button onClick={()=>goToDrink(null,true)} style={{ width:"100%", padding:"14px 20px", borderRadius:14, cursor:"pointer", border:`1px solid ${cnt>0?C.purple:C.border}`, background:cnt>0?C.purpleDim:C.bgCard, display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
             <span style={{ fontSize:24 }}>🥂</span>
             <span style={{ fontSize:15, fontWeight:700, color:cnt>0?C.purple:C.text }}>ゲスト注文</span>
             {cnt>0 && <span style={{ marginLeft:"auto", fontSize:13, color:C.purple, fontWeight:800 }}>{cnt}件</span>}
           </button>
         );})()}
+        {/* 出前メニュー（画面下部） */}
+        <button onClick={()=>setDeliveryModal(true)} style={{ width:"100%", padding:"14px 20px", borderRadius:14, border:`1px solid ${C.tealBorder}`, background:C.tealDim, color:C.teal, fontWeight:700, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ fontSize:24 }}>🛵</span>
+          <span>出前メニューを見る</span>
+        </button>
+        {deliveryModalJSX}
       </div>
       {confirm && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:250, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -1147,8 +1155,20 @@ function CastTerminal({ onExit, settings, shopId }) {
               <button onClick={()=>{setMsgModal(false);setMsgText("");}} style={{ flex:1, padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>キャンセル</button>
               <button onClick={()=>{
                 if(!msgText.trim()) return;
-                DB.addService(shopId,{id:uid(),tableId,tableLabel:tInfo?.label,name:`📝 ${msgText.trim()}`,emoji:"📝",time:nowShort(),status:"pending",isMessage:true,castName:isGuest?"ゲスト":activeCast});
-                flash("伝達事項を送信しました");
+                // 伝達事項をカートに追加（卓選択後に送信される）
+                setCart(p=>[...p, {
+                  id: uid(),
+                  isMessage: true,
+                  drinkName: `📝 ${msgText.trim()}`,
+                  emoji: "📝",
+                  qty: 1,
+                  price: 0,
+                  noCount: true,
+                  castName: isGuest ? null : activeCast,
+                  isGuest,
+                  msgBody: msgText.trim(),
+                }]);
+                flash("伝達事項をカートに追加（送信ボタンで送信）");
                 setMsgModal(false); setMsgText("");
               }} disabled={!msgText.trim()} style={{ flex:2, padding:"14px", borderRadius:14, border:"none", background:C.teal, color:"#0a0618", fontWeight:800, cursor:"pointer", fontSize:14 }}>
                 送信する →
