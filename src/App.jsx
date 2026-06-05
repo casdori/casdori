@@ -1563,8 +1563,16 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
               const tMap={};
               todayBatches.forEach(b=>{
                 const k=String(b.tableId);
-                if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0};
-                b.items.forEach(item=>{if(!item.noCount){tMap[k].total+=(item.price||0)*(item.qty||1);tMap[k].cups+=(item.qty||1);}});
+                if(!tMap[k]) tMap[k]={label:b.tableLabel,tableId:b.tableId,total:0,cups:0,priceMap:{}};
+                b.items.forEach(item=>{
+                  if(item.noCount) return;
+                  const p = item.price||0;
+                  const q = item.qty||1;
+                  tMap[k].total += p*q;
+                  tMap[k].cups  += q;
+                  if(!tMap[k].priceMap[p]) tMap[k].priceMap[p]={price:p,cups:0};
+                  tMap[k].priceMap[p].cups += q;
+                });
               });
               const tables=Object.values(tMap).sort((a,b)=>b.total-a.total);
               return tables.length===0 ? (
@@ -1576,8 +1584,13 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 <div key={i} style={{ background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.goldBorder}`, overflow:"hidden" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px" }}>
                     <button onClick={()=>setDetailTable(detailTable===t.tableId?null:t.tableId)} style={{ flex:1, textAlign:"left", background:"transparent", border:"none", cursor:"pointer", padding:0 }}>
-                      <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:3 }}>{t.label}</div>
-                      <div style={{ fontSize:12, color:C.textDim }}>{t.cups}杯　▼ 詳細</div>
+                      <div style={{ fontSize:16, fontWeight:800, color:C.gold, marginBottom:4 }}>{t.label}</div>
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:2 }}>
+                        {Object.values(t.priceMap||{}).sort((a,b)=>a.price-b.price).map((p,pi)=>(
+                          <span key={pi} style={{ fontSize:11, padding:"2px 8px", background:"rgba(232,184,75,0.12)", border:`1px solid ${C.goldBorder}`, borderRadius:8, color:C.gold, fontWeight:700 }}>¥{p.price.toLocaleString()}×{p.cups}</span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>計{t.cups}杯　▼ 詳細</div>
                     </button>
                     <div style={{ fontSize:20, fontWeight:900, color:C.gold, marginRight:8 }}>¥{t.total.toLocaleString()}</div>
                     <button onClick={(e)=>{e.stopPropagation();setMoveFromTable(t);}} style={{ padding:"10px 12px", borderRadius:12, border:`1px solid ${C.teal}`, background:C.tealDim, color:C.teal, fontWeight:800, cursor:"pointer", fontSize:13, flexShrink:0, marginRight:6 }}>
@@ -1645,7 +1658,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                   </div>
                 ) : casts.map((c,i)=>(
                   <button key={i} onClick={()=>setDetailCast(c.name)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
-                    <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:C.pink }}>{i+1}</div>
+                    <span style={{ fontSize:18, flexShrink:0 }}>💗</span>
                     <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.name}</div>
                     <div style={{ flex:1 }}>
                       <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
