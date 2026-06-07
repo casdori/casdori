@@ -173,6 +173,21 @@ const DB = {
       if(Object.keys(u).length>0) await update(ref(db),u);
     } catch(e){console.error(e);}
   },
+  // バッチ内の特定アイテムを「提供済み」にする（doneItems配列に追加）
+  markItemDone: async (shopId, batchId, itemIndex) => {
+    try {
+      const snap = await get(ref(db, `shops/${shopId}/batches/${batchId}`));
+      if(!snap.exists()) return;
+      const batch = snap.val();
+      const doneItems = Array.isArray(batch.doneItems) ? [...batch.doneItems] : [];
+      if(!doneItems.includes(itemIndex)) doneItems.push(itemIndex);
+      // 全アイテムが提供済みなら status="done"
+      const allDone = batch.items.length > 0 && batch.items.every((_,i)=>doneItems.includes(i));
+      const u = { [`shops/${shopId}/batches/${batchId}/doneItems`]: doneItems };
+      if(allDone) u[`shops/${shopId}/batches/${batchId}/status`] = "done";
+      await update(ref(db), u);
+    } catch(e){ console.error("markItemDone error:",e); }
+  },
   // バッチ内の特定アイテムを削除（batches or archived どちらも対応・reportsからも減算）
   removeItemFromBatch: async (shopId, batchId, itemIndex, currentItems, isArchived=false) => {
     try {
@@ -1499,15 +1514,23 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                               ── {batch.time} の追加注文 ──
                             </div>
                           )}
-                          {batch.items.map((item,i)=>(
-                            <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderTop:`1px solid ${C.border}` }}>
-                              <span style={{ fontSize:16 }}>{item.emoji}</span>
-                              <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
-                              <span style={{ flex:1, fontSize:13 }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
-                              <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
-                              {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
-                            </div>
-                          ))}
+                          {batch.items.map((item,i)=>{
+                            const isItemDone = Array.isArray(batch.doneItems) && batch.doneItems.includes(i);
+                            return (
+                              <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderTop:`1px solid ${C.border}`, opacity:isItemDone?0.4:1 }}>
+                                <span style={{ fontSize:16 }}>{item.emoji}</span>
+                                <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
+                                <span style={{ flex:1, fontSize:13, textDecoration:isItemDone?"line-through":"none" }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
+                                <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
+                                {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
+                                {isItemDone ? (
+                                  <span style={{ fontSize:11, color:C.green, fontWeight:700, padding:"3px 8px", border:`1px solid ${C.green}`, borderRadius:8 }}>✓ 済</span>
+                                ) : (
+                                  <button onClick={(e)=>{ e.stopPropagation(); DB.markItemDone(shopId, batch.batchId, i); }} style={{ padding:"5px 10px", borderRadius:8, border:`1px solid ${C.green}`, background:"rgba(62,207,142,0.15)", color:C.green, cursor:"pointer", fontSize:11, fontWeight:700, flexShrink:0 }}>✓ 提供</button>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
@@ -1517,8 +1540,13 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             )}
             {done.length>0 && (
               <div style={{ marginTop:20 }}>
-                <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>✓ 提供済み（直近10件）</div>
-                {[...done].sort((a,b)=>a.time>b.time?-1:1).slice(0,10).map(b=>(
+                <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>✓ 提供済み（新着順・直近10件）</div>
+                {[...done].sort((a,b)=>{
+                  // batchIdの先頭タイムスタンプ部分でも比較できるが、まずtimeで降順
+                  if(a.time !== b.time) return a.time > b.time ? -1 : 1;
+                  // 同時刻ならbatchIdで降順（新しいIDが大きい想定）
+                  return a.batchId > b.batchId ? -1 : 1;
+                }).slice(0,10).map(b=>(
                   <div key={b.batchId} style={{ padding:"10px 14px", background:C.bgCard, borderRadius:10, marginBottom:6, opacity:0.75, border:`1px solid ${C.border}` }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                       <span style={{ fontSize:11, color:C.textDim }}>🕐 {b.time}</span>
