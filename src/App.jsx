@@ -750,6 +750,7 @@ function CastTerminal({ onExit, settings, shopId }) {
   const [selDelivery, setSelDelivery]     = useState(null);
   const [favModal, setFavModal]           = useState(false);
   const [submitResult, setSubmitResult]   = useState(null); // 送信完了モーダル用
+  const [tableSelectModal, setTableSelectModal] = useState(false); // 卓選択モーダル
 
   const tables   = settings?.tables      || [];
   const casts    = settings?.castList    || [];
@@ -1134,7 +1135,7 @@ function CastTerminal({ onExit, settings, shopId }) {
                 );
               })}
             </div>
-            <button onClick={()=>{ setTableId(null); setPhase("tableSelect"); }} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
+            <button onClick={()=>{ setTableId(null); setTableSelectModal(true); }} style={{ width:"100%", padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17, boxShadow:"0 4px 16px rgba(62,207,142,0.35)" }}>
               ✅ {myCartItems.length}件 → 卓選択へ
             </button>
           </div>
@@ -1259,9 +1260,42 @@ function CastTerminal({ onExit, settings, shopId }) {
               ))}
             </div>
             <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>{ setConfirm(false); setPhase("tableSelect"); }} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>← 卓選択へ</button>
+              <button onClick={()=>{ setConfirm(false); setTableSelectModal(true); }} style={{ flex:1, padding:"16px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:15, fontWeight:700 }}>← 卓選択へ</button>
               <button onClick={submit} style={{ flex:2, padding:"16px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.green},#2aab6e)`, color:"#0a0618", fontWeight:900, cursor:"pointer", fontSize:17 }}>✅ 送信する</button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* 卓選択モーダル（下からスッと出る） */}
+      {tableSelectModal && (
+        <div onClick={()=>setTableSelectModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center", animation:"fadeIn 0.2s" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:480, background:"#0d0820", borderRadius:"24px 24px 0 0", padding:"20px", maxHeight:"85vh", display:"flex", flexDirection:"column" }}>
+            <div style={{ textAlign:"center", marginBottom:14 }}>
+              <div style={{ fontSize:32, marginBottom:4 }}>🍽️</div>
+              <div style={{ fontSize:17, fontWeight:900, color:C.gold }}>送信先の卓を選択</div>
+              <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{isGuest?"🥂 ゲスト":`💗 ${activeCast}`}　{cart.length}件</div>
+            </div>
+            <div style={{ overflowY:"auto", flex:1 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10 }}>
+                {tables.filter(t=>typeof t.id==="number").map(t=>(
+                  <button key={t.id} onClick={()=>{
+                    setTableId(t.id);
+                    setTableSelectModal(false);
+                    setConfirm(true);
+                  }} style={{ padding:"20px 8px", borderRadius:14, fontSize:20, fontWeight:800, border:`2px solid ${C.border}`, background:C.bgCard, color:C.text, cursor:"pointer" }}>{t.label}</button>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>
+                {tables.filter(t=>typeof t.id==="string").map(t=>(
+                  <button key={t.id} onClick={()=>{
+                    setTableId(t.id);
+                    setTableSelectModal(false);
+                    setConfirm(true);
+                  }} style={{ padding:"18px 8px", borderRadius:14, fontSize:15, fontWeight:800, border:`2px solid ${C.border}`, background:C.bgCard, color:C.text, cursor:"pointer" }}>{t.label}</button>
+                ))}
+              </div>
+            </div>
+            <button onClick={()=>setTableSelectModal(false)} style={{ width:"100%", marginTop:14, padding:"14px", borderRadius:14, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:14 }}>キャンセル</button>
           </div>
         </div>
       )}
