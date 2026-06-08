@@ -2595,9 +2595,9 @@ function DailyReportPanel({ shopId, onExit }) {
               </div>
             </div>
             <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>💗 キャスト別（タップで詳細）</div>
-            {[...castReports].sort((a,b)=>(b.revenue||0)-(a.revenue||0)).map((c,i)=>(
+            {[...castReports].sort((a,b)=>a.castName.localeCompare(b.castName,"ja")).map((c,i)=>(
               <button key={i} onClick={()=>setDetail(c.castName)} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"14px", background:C.bgCard, borderRadius:14, marginBottom:8, border:`1px solid ${C.border}`, cursor:"pointer", textAlign:"left" }}>
-                <div style={{ width:26, height:26, borderRadius:"50%", flexShrink:0, background:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.bgCard, border:i>2?`1px solid ${C.border}`:"none", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:i<=2?"#0a0618":C.textDim }}>{i+1}</div>
+                <span style={{ fontSize:18, flexShrink:0 }}>💗</span>
                 <div style={{ width:60, fontSize:14, fontWeight:700, color:C.pink, flexShrink:0 }}>{c.castName}</div>
                 <div style={{ flex:1 }}>
                   <div style={{ height:6, background:"rgba(255,255,255,0.07)", borderRadius:3, overflow:"hidden", marginBottom:4 }}>
