@@ -131,6 +131,17 @@ const DB = {
   updateServiceStatus: async (shopId, svcId, status) => {
     try { await update(ref(db,`shops/${shopId}/services/${svcId}`),{status}); } catch(e){console.error(e);}
   },
+  // 出退勤の記録（attendance/日付/キャスト名 にスタンプを保存）
+  saveAttendance: async (shopId, date, castName, type, time) => {
+    try {
+      const ts = Date.now();
+      await update(ref(db), { [`shops/${shopId}/attendance/${date}/${castName}/${ts}`]: { type, time, ts } });
+    } catch(e){console.error("saveAttendance error:",e);}
+  },
+  // 出退勤レコードを削除
+  removeAttendanceRecord: async (shopId, date, castName, ts) => {
+    try { await update(ref(db), { [`shops/${shopId}/attendance/${date}/${castName}/${ts}`]: null }); } catch(e){console.error(e);}
+  },
   // 時間管理：テーブルセッションの保存・更新
   saveTableSession: async (shopId, tableId, session) => {
     try { await set(ref(db, `shops/${shopId}/sessions/${tableId}`), session); } catch(e){console.error(e);}
@@ -226,6 +237,17 @@ const DB = {
     onValue(seRef,seh);
     return () => { off(bRef,'value',bh); off(sRef,'value',sh); off(aRef,'value',ah); off(seRef,'value',seh); };
   },
+  // 出退勤データを取得（指定日）
+  loadAttendance: async (shopId, date) => {
+    try { const s = await get(ref(db,`shops/${shopId}/attendance/${date}`)); return s.exists()?s.val():{}; } catch { return {}; }
+  },
+  // 出退勤データを購読（指定日）
+  subscribeAttendance: (shopId, date, cb) => {
+    const r = ref(db,`shops/${shopId}/attendance/${date}`);
+    const h = snap => cb(snap.exists()?snap.val():{});
+    onValue(r,h);
+    return () => off(r,'value',h);
+  },
 };
 
 function uid() { return Math.random().toString(36).slice(2,9); }
@@ -284,6 +306,8 @@ function defaultSettings(shopId, shopName) {
       {id:"wine",name:"グラスワイン",price:2000,emoji:"🍷",special:true},
       {id:"habu_k",name:"ハブ酒観覧車",price:27000,emoji:"🎡",special:true},
       {id:"tequila_k",name:"テキーラ観覧車",price:25000,emoji:"🎡",special:true},
+      {id:"habu_p",name:"ハブ海賊船",price:30000,emoji:"⛵",special:true},
+      {id:"tequila_p",name:"テキーラ海賊船",price:28000,emoji:"⛵",special:true},
     ],
   };
 }
@@ -422,12 +446,13 @@ const SPLIT_TYPES = [
 const GUEST_BASE = [
   {id:"g_jogo",name:"じょうご",emoji:"🥃"},{id:"g_rento",name:"れんと",emoji:"🍶"},
   {id:"g_sato",name:"里の曙",emoji:"🍶"},{id:"g_marrika",name:"茉莉花",emoji:"🌸"},
-  {id:"g_kuro",name:"黒伊佐錦",emoji:"🍶"},
+  {id:"g_kuro",name:"黒伊佐錦",emoji:"🍶"},{id:"g_nikaido",name:"二階堂",emoji:"🍶"},
 ];
 const GUEST_SINGLE = [
   {id:"gb",name:"ビール",emoji:"🍺"},{id:"gl",name:"レモンサワー",emoji:"🍋"},
   {id:"gh",name:"ハイボール",emoji:"🥃"},{id:"gc",name:"コーラ",emoji:"🥤"},
   {id:"go",name:"オレンジジュース",emoji:"🍊"},{id:"gcf",name:"コーヒー",emoji:"☕"},
+  {id:"ghabu",name:"ハブ酒",emoji:"🐍"},{id:"gtequila",name:"テキーラ",emoji:"🥃"},
 ];
 const GUEST_PITCHER = [
   {id:"gpr",name:"緑茶ピッチャー",emoji:"🍵"},{id:"gpu",name:"ウーロンピッチャー",emoji:"🍵"},
@@ -1484,7 +1509,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
       <div style={{ display:"flex", alignItems:"center", padding:"12px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(8,5,15,0.95)", gap:8, flexWrap:"wrap" }}>
         <span style={{ fontSize:16, color:C.gold }}>♛</span>
         <span style={{ fontSize:13, fontWeight:900, color:C.gold }}>ADMIN</span>
-        {[{k:"kitchen",l:"🍹 ドリンク場"},{k:"stats",l:"📊 集計"},{k:"time",l:"⏱ 時間管理"}].map(t=>(
+        {[{k:"kitchen",l:"🍹 ドリンク場"},{k:"stats",l:"📊 集計"},{k:"stats2",l:"💰 集計2"},{k:"time",l:"⏱ 時間管理"}].map(t=>(
           <button key={t.k} onClick={()=>{setTab(t.k);setDetailCast(null);}} style={{ padding:"5px 12px", borderRadius:16, fontSize:13, fontWeight:700, border:`1px solid ${tab===t.k?C.gold:C.border}`, background:tab===t.k?C.goldDim:"transparent", color:tab===t.k?C.gold:C.textDim, cursor:"pointer" }}>{t.l}</button>
         ))}
         <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
@@ -1769,6 +1794,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             </div>
           </div>
         )}
+        {/* 💰 集計2タブ */}
+        {tab==="stats2" && <Stats2Panel shopId={shopId} settings={settings} todayReport={todayReport} sessions={sessions} currentBizDate={currentBizDate} />}
         {/* ⏱ 時間管理タブ */}
         {tab==="time" && <TimeMgmtPanel shopId={shopId} settings={settings} sessions={sessions} batches={batches} todayBatches={todayBatches} />}
         {tab==="stats" && detailCast && detail && (()=>{
@@ -2022,6 +2049,324 @@ function SettingsPanel({ settings, shopId, onSave, onExit }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// 集計2パネル（出退勤＋給料）
+// ══════════════════════════════════════════════════════════════
+function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }) {
+  const [subTab, setSubTab] = useState("attendance"); // attendance / salary
+  const [attendance, setAttendance] = useState({});
+  const [now, setNow] = useState(Date.now());
+  const [detailCast, setDetailCast] = useState(null); // 給料詳細表示中のキャスト
+  const [monthData, setMonthData] = useState({}); // 月別データ {YYYY-MM-DD: report}
+  const [dayDetailDate, setDayDetailDate] = useState(null); // 日別売上で選択中の日付
+
+  // 出退勤データを購読
+  useEffect(()=>{
+    return DB.subscribeAttendance(shopId, currentBizDate, setAttendance);
+  }, [shopId, currentBizDate]);
+
+  // 1分ごとに時刻更新（リアルタイム時間表示）
+  useEffect(()=>{
+    const t = setInterval(()=>setNow(Date.now()), 60*1000);
+    return ()=>clearInterval(t);
+  }, []);
+
+  // キャスト詳細を開いた時：当月のreportsを取得
+  useEffect(()=>{
+    if(!detailCast) { setMonthData({}); setDayDetailDate(null); return; }
+    const [y,m] = currentBizDate.split("-");
+    const daysInMonth = new Date(parseInt(y), parseInt(m), 0).getDate();
+    const loadMonth = async () => {
+      const dates = [];
+      for(let d=1; d<=daysInMonth; d++) {
+        dates.push(`${y}-${m}-${String(d).padStart(2,"0")}`);
+      }
+      const results = await Promise.all(dates.map(d=>DB.loadDailyReport(shopId, d)));
+      const map = {};
+      dates.forEach((d,i)=>{ if(results[i]) map[d] = results[i]; });
+      setMonthData(map);
+      // デフォルトで前日を表示
+      const yesterday = (()=>{
+        const dt = new Date(currentBizDate + "T00:00:00");
+        dt.setDate(dt.getDate()-1);
+        return dt.toISOString().slice(0,10);
+      })();
+      setDayDetailDate(yesterday);
+    };
+    loadMonth();
+  }, [detailCast, currentBizDate, shopId]);
+
+  // 15分単位に丸めた現在時刻
+  function roundedNow() {
+    const d = new Date();
+    const m = Math.floor(d.getMinutes()/15)*15;
+    d.setMinutes(m, 0, 0);
+    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+
+  // 各キャストの最新ステータス（出勤中 or 退勤）
+  function getCastStatus(castName) {
+    const records = attendance[castName] || {};
+    const sorted = Object.entries(records).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+    if(sorted.length === 0) return { working: false };
+    const last = sorted[sorted.length-1][1];
+    return { working: last.type === "in", lastTime: last.time, records: sorted };
+  }
+
+  // 出勤時間を計算（分）
+  function calcWorkMinutes(castName) {
+    const records = attendance[castName] || {};
+    const sorted = Object.entries(records).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+    let totalMin = 0;
+    let lastIn = null;
+    sorted.forEach(([k,v])=>{
+      if(v.type === "in") lastIn = v.ts;
+      else if(v.type === "out" && lastIn) {
+        totalMin += Math.floor((v.ts - lastIn) / (1000*60));
+        lastIn = null;
+      }
+    });
+    // 出勤中なら現在時刻まで加算
+    if(lastIn) {
+      totalMin += Math.floor((now - lastIn) / (1000*60));
+    }
+    return totalMin;
+  }
+
+  // 出退勤ボタン押下
+  async function toggleAttendance(castName) {
+    const status = getCastStatus(castName);
+    const type = status.working ? "out" : "in";
+    await DB.saveAttendance(shopId, currentBizDate, castName, type, roundedNow());
+  }
+
+  const HOURLY = 3500; // 時給
+  const NOM_A  = 1000; // A指名バック
+  const NOM_B  = 500;  // B指名バック
+  const DRINK_BACK_RATE = 0.30; // ドリンクバック30%
+
+  // キャスト別のバック計算
+  function calcSalary(castName) {
+    // 出勤時間（分）
+    const minutes = calcWorkMinutes(castName);
+    const hours   = minutes / 60;
+    const baseSalary = Math.floor(hours * HOURLY);
+
+    // ドリンクバック（reports/今日 から）
+    const castReport = todayReport?.castReports?.find(c=>c.castName===castName);
+    const drinkRevenue = castReport?.revenue || 0;
+    const drinkBack    = Math.floor(drinkRevenue * DRINK_BACK_RATE);
+
+    // 指名バック（全卓のsessionsから集計）
+    let nomA = 0, nomB = 0;
+    Object.values(sessions||{}).forEach(sess=>{
+      (sess.nominations||[]).forEach(n=>{
+        if(n.castName !== castName) return;
+        if(n.nominateType === "A") nomA++;
+        else if(n.nominateType === "B") nomB++;
+        // nominateTypeなしの古いデータはAとしてカウント
+        else nomA++;
+      });
+    });
+    const nomBack = nomA * NOM_A + nomB * NOM_B;
+
+    const total = baseSalary + drinkBack + nomBack;
+    return { minutes, hours, baseSalary, drinkRevenue, drinkBack, nomA, nomB, nomBack, total };
+  }
+
+  const castList = [...(settings.castList||[])].sort((a,b)=>a.localeCompare(b,"ja"));
+
+  return (
+    <div style={{ padding:"16px" }}>
+      {/* サブタブ */}
+      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+        {[["attendance","⏱ 出退勤"],["salary","💰 給料"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSubTab(k)} style={{ flex:1, padding:"10px", borderRadius:12, border:`1px solid ${subTab===k?C.gold:C.border}`, background:subTab===k?C.goldDim:"transparent", color:subTab===k?C.gold:C.textDim, fontWeight:700, fontSize:13, cursor:"pointer" }}>{l}</button>
+        ))}
+      </div>
+
+      {/* ⏱ 出退勤タブ */}
+      {subTab === "attendance" && (
+        <div>
+          <div style={{ fontSize:11, color:C.textDim, marginBottom:10 }}>📅 {currentBizDate}　現在 {String(new Date().getHours()).padStart(2,"0")}:{String(new Date().getMinutes()).padStart(2,"0")}（15分単位で記録）</div>
+          {castList.map(name=>{
+            const status = getCastStatus(name);
+            const minutes = calcWorkMinutes(name);
+            const h = Math.floor(minutes/60);
+            const m = minutes%60;
+            return (
+              <div key={name} style={{ padding:"12px 14px", background:C.bgCard, border:`1px solid ${status.working?C.green:C.border}`, borderRadius:14, marginBottom:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                  <span style={{ fontSize:14, fontWeight:700, color:C.pink, flex:1 }}>💗 {name}</span>
+                  {status.working && <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>● 出勤中</span>}
+                  <span style={{ fontSize:13, fontWeight:800, color:C.gold }}>{h}h {String(m).padStart(2,"0")}m</span>
+                </div>
+                <button onClick={()=>toggleAttendance(name)} style={{ width:"100%", padding:"10px", borderRadius:10, border:"none", background:status.working?C.redDim:C.greenDim, color:status.working?C.red:C.green, border:`1px solid ${status.working?C.red:C.green}`, fontWeight:800, cursor:"pointer", fontSize:13 }}>
+                  {status.working ? `🔚 退勤（${roundedNow()}）` : `▶ 出勤（${roundedNow()}）`}
+                </button>
+                {/* 履歴 */}
+                {status.records && status.records.length > 0 && (
+                  <div style={{ marginTop:8, fontSize:11, color:C.textDim }}>
+                    {status.records.map(([ts,r])=>(
+                      <span key={ts} style={{ marginRight:8 }}>{r.type==="in"?"▶":"🔚"} {r.time}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 💰 給料タブ */}
+      {subTab === "salary" && !detailCast && (
+        <div>
+          <div style={{ padding:"12px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, marginBottom:14, fontSize:11, color:C.textDim }}>
+            時給 ¥{HOURLY.toLocaleString()}　/　ドリンクバック {Math.floor(DRINK_BACK_RATE*100)}%　/　A指名 ¥{NOM_A.toLocaleString()}　B指名 ¥{NOM_B.toLocaleString()}
+          </div>
+          {castList.map(name=>{
+            const s = calcSalary(name);
+            const h = Math.floor(s.minutes/60);
+            const m = s.minutes%60;
+            if(s.total === 0 && s.minutes === 0) return null;
+            return (
+              <button key={name} onClick={()=>setDetailCast(name)} style={{ width:"100%", padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:10, cursor:"pointer", textAlign:"left" }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                  <span style={{ fontSize:15, fontWeight:800, color:C.pink }}>💗 {name}</span>
+                  <span style={{ fontSize:18, fontWeight:900, color:C.gold }}>¥{s.total.toLocaleString()}　▶</span>
+                </div>
+                <div style={{ fontSize:12, color:C.textDim, display:"flex", flexDirection:"column", gap:3 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                    <span>⏱ 出勤 {h}h {String(m).padStart(2,"0")}m × ¥{HOURLY.toLocaleString()}</span>
+                    <span style={{ color:C.text }}>¥{s.baseSalary.toLocaleString()}</span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                    <span>🍹 ドリンクバック ({Math.floor(DRINK_BACK_RATE*100)}%)</span>
+                    <span style={{ color:C.text }}>¥{s.drinkBack.toLocaleString()}</span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                    <span>⭐ 指名バック (A{s.nomA} / B{s.nomB})</span>
+                    <span style={{ color:C.text }}>¥{s.nomBack.toLocaleString()}</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {castList.every(n=>calcSalary(n).total===0) && (
+            <div style={{ padding:"40px 16px", textAlign:"center", color:C.textDim, fontSize:13 }}>まだ給料データがありません</div>
+          )}
+        </div>
+      )}
+
+      {/* 👤 キャスト詳細（月売上・日別売上） */}
+      {subTab === "salary" && detailCast && (()=>{
+        // 月集計
+        const [y,m] = currentBizDate.split("-");
+        let monthRevenue = 0, monthCups = 0;
+        const dayList = [];
+        Object.entries(monthData).forEach(([date, rep])=>{
+          const castRep = (rep.castReports||[]).find(c=>c.castName===detailCast);
+          if(castRep) {
+            monthRevenue += castRep.revenue||0;
+            monthCups    += castRep.cups||0;
+            dayList.push({ date, revenue:castRep.revenue||0, cups:castRep.cups||0, items:castRep.items||[] });
+          }
+        });
+        dayList.sort((a,b)=>b.date>a.date?1:-1);
+        const monthBack = Math.floor(monthRevenue * DRINK_BACK_RATE);
+
+        // 選択日のデータ
+        const dayRep = monthData[dayDetailDate];
+        const dayCast = dayRep ? (dayRep.castReports||[]).find(c=>c.castName===detailCast) : null;
+        const dayBack = dayCast ? Math.floor((dayCast.revenue||0) * DRINK_BACK_RATE) : 0;
+
+        return (
+          <div>
+            <button onClick={()=>setDetailCast(null)} style={{ marginBottom:14, padding:"6px 12px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:13 }}>← 戻る</button>
+
+            <div style={{ textAlign:"center", marginBottom:18 }}>
+              <div style={{ fontSize:24, fontWeight:900, color:C.pink }}>💗 {detailCast}</div>
+            </div>
+
+            {/* 月売上カード */}
+            <div style={{ padding:"16px", background:C.goldDim, border:`2px solid ${C.gold}`, borderRadius:16, marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.textDim, fontWeight:700, marginBottom:6 }}>📅 {y}年{parseInt(m)}月の売上</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
+                <span style={{ fontSize:13, color:C.text }}>月売上合計</span>
+                <span style={{ fontSize:24, fontWeight:900, color:C.gold }}>¥{monthRevenue.toLocaleString()}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
+                <span style={{ fontSize:12, color:C.textDim }}>月杯数</span>
+                <span style={{ fontSize:14, fontWeight:800, color:C.text }}>{monthCups}杯</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:6, borderTop:`1px dashed ${C.border}` }}>
+                <span style={{ fontSize:12, color:C.textDim }}>🍹 月バック ({Math.floor(DRINK_BACK_RATE*100)}%)</span>
+                <span style={{ fontSize:16, fontWeight:900, color:C.pink }}>¥{monthBack.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* 日別売上：日付選択 */}
+            <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>📋 日別売上</div>
+            {dayList.length === 0 && (
+              <div style={{ padding:"30px 16px", textAlign:"center", color:C.textDim, fontSize:13 }}>当月の売上データがありません</div>
+            )}
+
+            {dayList.length > 0 && (
+              <>
+                {/* 日付セレクター */}
+                <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto", paddingBottom:6 }}>
+                  {dayList.map(d=>(
+                    <button key={d.date} onClick={()=>setDayDetailDate(d.date)} style={{ flexShrink:0, padding:"8px 12px", borderRadius:10, border:`1px solid ${dayDetailDate===d.date?C.pink:C.border}`, background:dayDetailDate===d.date?C.pinkDim:"transparent", color:dayDetailDate===d.date?C.pink:C.textDim, fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                      {d.date.slice(5)}　¥{d.revenue.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 選択日の詳細 */}
+                {dayCast && (
+                  <div style={{ padding:"14px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                      <span style={{ fontSize:14, fontWeight:800, color:C.text }}>📅 {dayDetailDate}</span>
+                      <span style={{ fontSize:18, fontWeight:900, color:C.gold }}>¥{(dayCast.revenue||0).toLocaleString()}</span>
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textDim, marginBottom:8 }}>
+                      <span>{dayCast.cups||0}杯</span>
+                      <span>🍹 バック ¥{dayBack.toLocaleString()}</span>
+                    </div>
+                    {/* ドリンク内訳 */}
+                    {(dayCast.items||[]).length > 0 && (()=>{
+                      const drinkMap = {};
+                      dayCast.items.forEach(item=>{
+                        const k = item.drinkName + (item.nonAlco?" ❤️":"");
+                        if(!drinkMap[k]) drinkMap[k] = { name:k, emoji:item.emoji||"🍹", qty:0, total:0 };
+                        drinkMap[k].qty += item.qty||1;
+                        drinkMap[k].total += (item.price||0)*(item.qty||1);
+                      });
+                      return (
+                        <div style={{ borderTop:`1px dashed ${C.border}`, paddingTop:8 }}>
+                          <div style={{ fontSize:11, color:C.textDim, marginBottom:6 }}>ドリンク内訳</div>
+                          {Object.values(drinkMap).map((d,i)=>(
+                            <div key={i} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, padding:"3px 0" }}>
+                              <span>{d.emoji}</span>
+                              <span style={{ flex:1, color:C.text }}>{d.name}</span>
+                              <span style={{ color:C.textDim }}>×{d.qty}</span>
+                              <span style={{ color:C.gold, width:70, textAlign:"right" }}>¥{d.total.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2345,10 +2690,12 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
     await DB.saveTableSession(shopId, table.id, newSess);
   }
 
-  async function addNomination(castName) {
-    const newSess = {...session, nominations:[...(session.nominations||[]), { castName, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
+  const [pendingNomCast, setPendingNomCast] = useState(null); // 指名種別選択中
+  async function addNomination(castName, nominateType) {
+    const newSess = {...session, nominations:[...(session.nominations||[]), { castName, nominateType, time: new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}) }]};
     await DB.saveTableSession(shopId, table.id, newSess);
     setShowNominate(false);
+    setPendingNomCast(null);
   }
 
   async function endSession() {
@@ -2420,13 +2767,30 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
       <button onClick={()=>setShowNominate(!showNominate)} style={{ width:"100%", padding:"14px", borderRadius:14, border:`2px solid ${C.pink}`, background:C.pinkDim, color:C.pink, fontWeight:800, cursor:"pointer", fontSize:14, marginBottom:8 }}>
         ⭐ 指名を追加（60分 ¥2,200）
       </button>
-      {showNominate && (
+      {showNominate && !pendingNomCast && (
         <div style={{ padding:"12px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:14 }}>
+          <div style={{ fontSize:11, color:C.textDim, marginBottom:8, textAlign:"center" }}>指名するキャストを選んでください</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
             {[...(settings.castList||[])].sort((a,b)=>a.localeCompare(b,"ja")).map(name=>(
-              <button key={name} onClick={()=>addNomination(name)} style={{ padding:"10px 6px", borderRadius:10, border:`1px solid ${C.pinkBorder}`, background:"transparent", color:C.pink, fontSize:12, fontWeight:700, cursor:"pointer" }}>{name}</button>
+              <button key={name} onClick={()=>setPendingNomCast(name)} style={{ padding:"10px 6px", borderRadius:10, border:`1px solid ${C.pinkBorder}`, background:"transparent", color:C.pink, fontSize:12, fontWeight:700, cursor:"pointer" }}>{name}</button>
             ))}
           </div>
+        </div>
+      )}
+      {showNominate && pendingNomCast && (
+        <div style={{ padding:"16px", background:C.bgCard, border:`2px solid ${C.pink}`, borderRadius:14, marginBottom:14 }}>
+          <div style={{ fontSize:13, color:C.textDim, marginBottom:10, textAlign:"center" }}>💗 {pendingNomCast} の指名種別を選択</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+            <button onClick={()=>addNomination(pendingNomCast,"A")} style={{ padding:"16px", borderRadius:12, border:`2px solid ${C.gold}`, background:C.goldDim, color:C.gold, fontWeight:800, cursor:"pointer", fontSize:14 }}>
+              <div style={{ fontSize:18, fontWeight:900 }}>A指名</div>
+              <div style={{ fontSize:10, marginTop:2 }}>バック ¥1,000</div>
+            </button>
+            <button onClick={()=>addNomination(pendingNomCast,"B")} style={{ padding:"16px", borderRadius:12, border:`2px solid ${C.teal}`, background:C.tealDim, color:C.teal, fontWeight:800, cursor:"pointer", fontSize:14 }}>
+              <div style={{ fontSize:18, fontWeight:900 }}>B指名</div>
+              <div style={{ fontSize:10, marginTop:2 }}>バック ¥500</div>
+            </button>
+          </div>
+          <button onClick={()=>setPendingNomCast(null)} style={{ width:"100%", padding:"10px", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, cursor:"pointer", fontSize:12 }}>← キャスト選択に戻る</button>
         </div>
       )}
       {/* 指名一覧 */}
@@ -2434,8 +2798,11 @@ function SessionDetail({ table, session, sessions, shopId, settings, calcSession
         <div style={{ padding:"12px", background:C.pinkDim, border:`1px solid ${C.pinkBorder}`, borderRadius:14, marginBottom:14 }}>
           <div style={{ fontSize:11, color:C.pink, fontWeight:700, marginBottom:6 }}>⭐ 指名中のキャスト</div>
           {session.nominations.map((n,i)=>(
-            <div key={i} style={{ fontSize:13, color:C.pink, padding:"3px 0", display:"flex", justifyContent:"space-between" }}>
-              <span>🕐 {n.time}　{n.castName}</span>
+            <div key={i} style={{ fontSize:13, color:C.pink, padding:"3px 0", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ display:"flex", alignItems:"center", gap:6 }}>
+                🕐 {n.time}　{n.castName}
+                {n.nominateType && <span style={{ padding:"2px 8px", borderRadius:6, fontSize:10, fontWeight:800, background:n.nominateType==="A"?C.goldDim:C.tealDim, color:n.nominateType==="A"?C.gold:C.teal, border:`1px solid ${n.nominateType==="A"?C.gold:C.teal}` }}>{n.nominateType}指名</span>}
+              </span>
               <button onClick={async()=>{
                 if(!window.confirm(`${n.castName} の指名を取り消しますか？`)) return;
                 const newSess = {...session, nominations: session.nominations.filter((_,j)=>j!==i)};
