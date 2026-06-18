@@ -1112,12 +1112,28 @@ function CastTerminal({ onExit, settings, shopId }) {
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:16 }}>
               {(isGuest?GUEST_SINGLE:drinks).map(d=>{
                 const a = selDrink===d.id;
-                const sp = !isGuest && d.special;
+                // カラーマップ
+                const COLOR_MAP = {
+                  red:    "#f06d6d",
+                  gold:   "#e8b84b",
+                  pink:   "#f06daa",
+                  teal:   "#3ecfb8",
+                  purple: "#b08af0",
+                  blue:   "#6da8f0",
+                };
+                // 色判定：手動指定があればそれを使う、なければ価格で自動判定（2000円以上=赤）
+                let customColor = null;
+                if(!isGuest && d.colorKey && d.colorKey !== "auto") {
+                  customColor = COLOR_MAP[d.colorKey];
+                }
+                const isHighPrice = !isGuest && (d.special || (d.price && d.price >= 2000));
+                const sp = customColor || isHighPrice;
+                const accentColor = customColor || (isHighPrice ? C.red : null);
                 return (
-                  <button key={d.id} onClick={()=>tapDrink(d.id)} style={{ padding:"12px 6px", borderRadius:14, cursor:"pointer", border:`2px solid ${a?(sp?C.red:C.gold):(sp?"rgba(240,80,80,0.35)":C.border)}`, background:a?(sp?C.redDim:C.goldDim):(sp?"rgba(240,80,80,0.06)":C.bgCard), display:"flex", flexDirection:"column", alignItems:"center", gap:4, position:"relative" }}>
-                    {sp && <span style={{ position:"absolute", top:3, right:3, fontSize:9, fontWeight:800, color:C.red }}>¥{d.price?.toLocaleString()}</span>}
+                  <button key={d.id} onClick={()=>tapDrink(d.id)} style={{ padding:"12px 6px", borderRadius:14, cursor:"pointer", border:`2px solid ${a?(accentColor||C.gold):(accentColor?`${accentColor}55`:C.border)}`, background:a?(accentColor?`${accentColor}30`:C.goldDim):(accentColor?`${accentColor}10`:C.bgCard), display:"flex", flexDirection:"column", alignItems:"center", gap:4, position:"relative" }}>
+                    {sp && d.price > 0 && <span style={{ position:"absolute", top:3, right:3, fontSize:9, fontWeight:800, color:accentColor }}>¥{d.price?.toLocaleString()}</span>}
                     <span style={{ fontSize:22 }}>{d.emoji}</span>
-                    <span style={{ fontSize:11, fontWeight:a?700:400, color:a?(sp?C.red:C.gold):(sp?C.red:C.text), textAlign:"center", lineHeight:1.3 }}>{d.name}</span>
+                    <span style={{ fontSize:11, fontWeight:a?700:400, color:a?(accentColor||C.gold):(accentColor||C.text), textAlign:"center", lineHeight:1.3 }}>{d.name}</span>
                   </button>
                 );
               })}
@@ -2002,20 +2018,56 @@ function SettingsPanel({ settings, shopId, onSave, onExit }) {
             <button onClick={()=>setS({...s,tables:[...s.tables,{id:`t${uid()}`,label:`${s.tables.length+1}番`}]})} style={{ width:"100%", padding:"12px", borderRadius:12, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, cursor:"pointer", fontSize:14 }}>＋ テーブル追加</button>
           </div>
         )}
-        {tab==="menu" && (
-          <div>
-            <div style={{ fontSize:13, color:C.gold, fontWeight:700, marginBottom:8 }}>🍹 キャストドリンク</div>
-            {s.castDrinks.map((d,i)=>(
-              <div key={i} style={{ display:"flex", gap:6, marginBottom:8, alignItems:"center" }}>
-                <input value={d.emoji} onChange={e=>{const m=[...s.castDrinks];m[i]={...d,emoji:e.target.value};setS({...s,castDrinks:m});}} style={{ width:46, padding:"8px", borderRadius:10, fontSize:18, textAlign:"center", border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
-                <input value={d.name} onChange={e=>{const m=[...s.castDrinks];m[i]={...d,name:e.target.value};setS({...s,castDrinks:m});}} style={{ flex:1, padding:"8px 12px", borderRadius:10, fontSize:13, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
-                <input value={d.price} type="number" onChange={e=>{const m=[...s.castDrinks];m[i]={...d,price:Number(e.target.value)};setS({...s,castDrinks:m});}} style={{ width:80, padding:"8px", borderRadius:10, fontSize:13, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
-                <button onClick={()=>setS({...s,castDrinks:s.castDrinks.filter((_,j)=>j!==i)})} style={{ padding:"8px 12px", borderRadius:10, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer" }}>✕</button>
-              </div>
-            ))}
-            <button onClick={()=>setS({...s,castDrinks:[...s.castDrinks,{id:`d${uid()}`,name:"新しいドリンク",price:1000,emoji:"🍹"}]})} style={{ width:"100%", padding:"10px", borderRadius:12, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, cursor:"pointer", fontSize:13 }}>＋ 追加</button>
-          </div>
-        )}
+        {tab==="menu" && (()=>{
+          const COLOR_OPTIONS = [
+            { key:"auto", label:"自動", color:null },
+            { key:"red",  label:"赤",   color:"#f06d6d" },
+            { key:"gold", label:"金",   color:"#e8b84b" },
+            { key:"pink", label:"桃",   color:"#f06daa" },
+            { key:"teal", label:"緑青", color:"#3ecfb8" },
+            { key:"purple",label:"紫", color:"#b08af0" },
+            { key:"blue", label:"青",   color:"#6da8f0" },
+          ];
+          const moveItem = (from, to) => {
+            const m = [...s.castDrinks];
+            if(to < 0 || to >= m.length) return;
+            [m[from], m[to]] = [m[to], m[from]];
+            setS({...s,castDrinks:m});
+          };
+          return (
+            <div>
+              <div style={{ fontSize:13, color:C.gold, fontWeight:700, marginBottom:4 }}>🍹 キャストドリンク</div>
+              <div style={{ fontSize:11, color:C.textDim, marginBottom:10 }}>↑↓で順番変更　色を選んで枠の色を変更</div>
+              {s.castDrinks.map((d,i)=>{
+                const currentColor = d.colorKey || "auto";
+                return (
+                  <div key={i} style={{ padding:"10px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, marginBottom:8 }}>
+                    {/* 上段：絵文字・名前・価格・削除 */}
+                    <div style={{ display:"flex", gap:6, marginBottom:8, alignItems:"center" }}>
+                      <input value={d.emoji} onChange={e=>{const m=[...s.castDrinks];m[i]={...d,emoji:e.target.value};setS({...s,castDrinks:m});}} style={{ width:46, padding:"8px", borderRadius:10, fontSize:18, textAlign:"center", border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
+                      <input value={d.name} onChange={e=>{const m=[...s.castDrinks];m[i]={...d,name:e.target.value};setS({...s,castDrinks:m});}} style={{ flex:1, padding:"8px 12px", borderRadius:10, fontSize:13, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
+                      <input value={d.price} type="number" onChange={e=>{const m=[...s.castDrinks];m[i]={...d,price:Number(e.target.value)};setS({...s,castDrinks:m});}} style={{ width:80, padding:"8px", borderRadius:10, fontSize:13, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)", color:"#ede8f8", outline:"none" }} />
+                      <button onClick={()=>setS({...s,castDrinks:s.castDrinks.filter((_,j)=>j!==i)})} style={{ padding:"8px 12px", borderRadius:10, border:`1px solid ${C.red}`, background:C.redDim, color:C.red, cursor:"pointer" }}>✕</button>
+                    </div>
+                    {/* 下段：順序変更・色選択 */}
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", gap:4 }}>
+                        <button disabled={i===0} onClick={()=>moveItem(i,i-1)} style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${i===0?C.border:C.teal}`, background:i===0?"transparent":C.tealDim, color:i===0?C.textDim:C.teal, cursor:i===0?"not-allowed":"pointer", fontSize:13 }}>↑</button>
+                        <button disabled={i===s.castDrinks.length-1} onClick={()=>moveItem(i,i+1)} style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${i===s.castDrinks.length-1?C.border:C.teal}`, background:i===s.castDrinks.length-1?"transparent":C.tealDim, color:i===s.castDrinks.length-1?C.textDim:C.teal, cursor:i===s.castDrinks.length-1?"not-allowed":"pointer", fontSize:13 }}>↓</button>
+                      </div>
+                      <div style={{ display:"flex", gap:4, flexWrap:"wrap", flex:1 }}>
+                        {COLOR_OPTIONS.map(c=>(
+                          <button key={c.key} onClick={()=>{const m=[...s.castDrinks];m[i]={...d,colorKey:c.key};setS({...s,castDrinks:m});}} style={{ padding:"4px 10px", borderRadius:8, border:`2px solid ${currentColor===c.key?(c.color||C.gold):"transparent"}`, background:c.color?`${c.color}22`:"rgba(255,255,255,0.05)", color:c.color||C.text, cursor:"pointer", fontSize:11, fontWeight:700 }}>{c.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <button onClick={()=>setS({...s,castDrinks:[...s.castDrinks,{id:`d${uid()}`,name:"新しいドリンク",price:1000,emoji:"🍹"}]})} style={{ width:"100%", padding:"10px", borderRadius:12, border:`1px dashed ${C.gold}`, background:"transparent", color:C.gold, cursor:"pointer", fontSize:13 }}>＋ 追加</button>
+            </div>
+          );
+        })()}
         {tab==="pin" && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             <div style={{ padding:"16px", background:C.bgCard, borderRadius:14, border:`1px solid ${C.border}` }}>
