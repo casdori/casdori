@@ -48,7 +48,7 @@ const DB = {
   addBatch: async (shopId, batch) => {
     try {
       const bizDate = getBusinessDate();
-      const fullBatch = {...batch, businessDate: bizDate};
+      const fullBatch = {...batch, businessDate: bizDate, ts: Date.now()};
       // ① batchesに保存（キッチン表示用）
       await set(ref(db,`shops/${shopId}/batches/${batch.batchId}`), fullBatch);
       // ② reportsにも追加（履歴・集計用・絶対消えない）
@@ -1596,7 +1596,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                                 <span style={{ fontSize:16 }}>{item.emoji}</span>
                                 <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
                                 <span style={{ flex:1, fontSize:13, textDecoration:isItemDone?"line-through":"none" }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
-                                <span style={{ fontSize:12, color:C.textDim }}>×{item.qty}</span>
+                                <span style={{ fontSize:22, fontWeight:900, color:C.gold, background:C.goldDim, border:`1px solid ${C.goldBorder}`, padding:"3px 10px", borderRadius:10, minWidth:44, textAlign:"center" }}>×{item.qty}</span>
                                 {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
                                 {isItemDone ? (
                                   <span style={{ fontSize:11, color:C.green, fontWeight:700, padding:"3px 8px", border:`1px solid ${C.green}`, borderRadius:8 }}>✓ 済</span>
@@ -1617,10 +1617,12 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
               <div style={{ marginTop:20 }}>
                 <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:8 }}>✓ 提供済み（新着順・直近10件）</div>
                 {[...done].sort((a,b)=>{
-                  // batchIdの先頭タイムスタンプ部分でも比較できるが、まずtimeで降順
-                  if(a.time !== b.time) return a.time > b.time ? -1 : 1;
-                  // 同時刻ならbatchIdで降順（新しいIDが大きい想定）
-                  return a.batchId > b.batchId ? -1 : 1;
+                  // tsが両方あればts降順（0時またぎでも正しく並ぶ）
+                  if(a.ts && b.ts) return b.ts - a.ts;
+                  // 片方でも欠けていたら businessDate + time で降順
+                  const ak = (a.businessDate||"") + " " + (a.time||"");
+                  const bk = (b.businessDate||"") + " " + (b.time||"");
+                  return bk > ak ? 1 : (bk < ak ? -1 : 0);
                 }).slice(0,10).map(b=>(
                   <div key={b.batchId} style={{ padding:"10px 14px", background:C.bgCard, borderRadius:10, marginBottom:6, opacity:0.75, border:`1px solid ${C.border}` }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
