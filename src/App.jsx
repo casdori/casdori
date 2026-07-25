@@ -452,7 +452,8 @@ const GUEST_SINGLE = [
   {id:"gb",name:"ビール",emoji:"🍺"},{id:"gl",name:"レモンサワー",emoji:"🍋"},
   {id:"gh",name:"ハイボール",emoji:"🥃"},{id:"gc",name:"コーラ",emoji:"🥤"},
   {id:"go",name:"オレンジジュース",emoji:"🍊"},{id:"gcf",name:"コーヒー",emoji:"☕"},
-  {id:"ghabu",name:"ハブ酒",emoji:"🐍"},{id:"gtequila",name:"テキーラ",emoji:"🥃"},
+  {id:"ghabu",name:"ハブ酒",emoji:"🐍",price:2000,paid:true},
+  {id:"gtequila",name:"テキーラ",emoji:"🥃",price:2000,paid:true},
 ];
 const GUEST_PITCHER = [
   {id:"gpr",name:"緑茶ピッチャー",emoji:"🍵"},{id:"gpu",name:"ウーロンピッチャー",emoji:"🍵"},
@@ -865,7 +866,11 @@ function CastTerminal({ onExit, settings, shopId }) {
   function addCart() {
     if(!resolved) return;
     const optLabel = drinkOpt!=="普通" ? ` (${drinkOpt})` : "";
-    const item = {id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name+optLabel,emoji:resolved.emoji,price:isGuest?0:resolved.price,qty,nonAlco,noCount:isGuest,special:resolved.special||false};
+    // ゲストでも paid:true のドリンクは料金を計上（ハブ酒・テキーラなど）
+    const isPaidGuest = isGuest && resolved.paid;
+    const finalPrice  = isGuest ? (isPaidGuest ? (resolved.price||0) : 0) : resolved.price;
+    const finalNoCount = isGuest && !isPaidGuest; // 有料ゲスト注文は集計に含める
+    const item = {id:uid(),castName:isGuest?null:activeCast,isGuest,drinkName:resolved.name+optLabel,emoji:resolved.emoji,price:finalPrice,qty,nonAlco,noCount:finalNoCount,special:resolved.special||false};
     setCart(p=>[...p,item]);
     flash(`${resolved.name}${optLabel} ×${qty} カートに追加`);
     setQtyModal(false); setSelDrink(null); setSelBase(null); setSelSplit(null); setSplitModal(false); setNonAlco(false); setQty(1); setDrinkOpt("普通");
@@ -1596,7 +1601,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                                 <span style={{ fontSize:16 }}>{item.emoji}</span>
                                 <span style={{ fontSize:13, fontWeight:700, color:item.isGuest?C.purple:C.pink, width:50, flexShrink:0 }}>{item.isGuest?"ゲスト":item.castName}</span>
                                 <span style={{ flex:1, fontSize:13, textDecoration:isItemDone?"line-through":"none" }}>{item.drinkName}{item.nonAlco?" ❤️":""}</span>
-                                <span style={{ fontSize:22, fontWeight:900, color:C.gold, background:C.goldDim, border:`1px solid ${C.goldBorder}`, padding:"3px 10px", borderRadius:10, minWidth:44, textAlign:"center" }}>×{item.qty}</span>
+                                <span style={{ fontSize:28, fontWeight:900, color:"#ffe082", background:"rgba(232,184,75,0.35)", border:`2px solid ${C.gold}`, padding:"4px 14px", borderRadius:12, minWidth:60, textAlign:"center", boxShadow:"0 2px 8px rgba(232,184,75,0.4)", lineHeight:1 }}>× {item.qty}</span>
                                 {!item.noCount && <span style={{ fontSize:12, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</span>}
                                 {isItemDone ? (
                                   <span style={{ fontSize:11, color:C.green, fontWeight:700, padding:"3px 8px", border:`1px solid ${C.green}`, borderRadius:8 }}>✓ 済</span>
