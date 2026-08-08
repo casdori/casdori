@@ -1823,6 +1823,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
         {tab==="time" && <TimeMgmtPanel shopId={shopId} settings={settings} sessions={sessions} batches={batches} todayBatches={todayBatches} />}
         {tab==="stats" && detailCast && detail && (()=>{
           const BACK_RATE = 0.3;
+          // 価格別バック単価：¥2,000 → ¥500固定、その他 → 30%
+          const backPerCup = (price) => price === 2000 ? 500 : Math.floor(price * BACK_RATE);
           // 価格別に集計
           const priceMap = {};
           detail.rawItems.forEach(item=>{
@@ -1832,7 +1834,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             priceMap[p].total += p*(item.qty||1);
           });
           const priceGroups = Object.values(priceMap).sort((a,b)=>a.price-b.price);
-          const totalBack = Math.floor(detail.revenue * BACK_RATE);
+          const totalBack = priceGroups.reduce((sum,g)=>sum + backPerCup(g.price)*g.cups, 0);
 
           return (
           <div>
@@ -1850,8 +1852,8 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             {/* バック合計 */}
             <div style={{ padding:"16px 20px", background:"rgba(62,207,142,0.12)", border:`1px solid ${C.green}`, borderRadius:16, marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
               <div>
-                <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック（30%）</div>
-                <div style={{ fontSize:11, color:C.textDim }}>¥{detail.revenue.toLocaleString()} × 30%</div>
+                <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック</div>
+                <div style={{ fontSize:11, color:C.textDim }}>¥2,000→¥500固定 / その他30%</div>
               </div>
               <div style={{ fontSize:26, fontWeight:900, color:C.green }}>¥{totalBack.toLocaleString()}</div>
             </div>
@@ -1859,7 +1861,9 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
             {/* 価格別内訳 */}
             <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>📊 価格別内訳</div>
             {priceGroups.map((g,i)=>{
-              const back = Math.floor(g.total * BACK_RATE);
+              const perCup = backPerCup(g.price);
+              const back = perCup * g.cups;
+              const isSpecial = g.price === 2000;
               return (
                 <div key={i} style={{ padding:"14px 16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:8 }}>
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
@@ -1872,7 +1876,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                       <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{g.total.toLocaleString()}</div>
                     </div>
                     <div style={{ flex:1, padding:"8px 12px", background:"rgba(62,207,142,0.1)", borderRadius:10, textAlign:"center" }}>
-                      <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>バック（30%）</div>
+                      <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>{isSpecial?"バック（¥500固定）":"バック（30%）"}</div>
                       <div style={{ fontSize:15, fontWeight:900, color:C.green }}>¥{back.toLocaleString()}</div>
                     </div>
                   </div>
@@ -1894,7 +1898,7 @@ function AdminPanel({ onExit, onSettings, onReport, settings, shopId }) {
                 </div>
                 <div style={{ textAlign:"right", marginRight:8 }}>
                   <div style={{ fontSize:13, fontWeight:700, color:C.gold }}>¥{((item.price||0)*(item.qty||1)).toLocaleString()}</div>
-                  <div style={{ fontSize:11, color:C.green }}>バック¥{Math.floor((item.price||0)*(item.qty||1)*BACK_RATE).toLocaleString()}</div>
+                  <div style={{ fontSize:11, color:C.green }}>バック¥{(backPerCup(item.price||0)*(item.qty||1)).toLocaleString()}</div>
                 </div>
                 <button onClick={async()=>{
                   if(!window.confirm(`「${item.drinkName}」を削除しますか？`)) return;
@@ -2216,9 +2220,19 @@ function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }
     const baseSalary = Math.floor(hours * HOURLY);
 
     // ドリンクバック（reports/今日 から）
+    // ¥2,000ドリンク → 1杯¥500固定 / その他 → 30%
     const castReport = todayReport?.castReports?.find(c=>c.castName===castName);
     const drinkRevenue = castReport?.revenue || 0;
-    const drinkBack    = Math.floor(drinkRevenue * DRINK_BACK_RATE);
+    let drinkBack = 0;
+    (castReport?.items||[]).forEach(item=>{
+      const p = item.price||0;
+      const q = item.qty||1;
+      if(p === 2000) {
+        drinkBack += 500 * q; // 2,000円ドリンクは1杯500円
+      } else {
+        drinkBack += Math.floor(p * DRINK_BACK_RATE) * q;
+      }
+    });
 
     // 指名バック（全卓のsessionsから集計）
     let nomA = 0, nomB = 0;
@@ -2285,7 +2299,7 @@ function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }
       {subTab === "salary" && !detailCast && (
         <div>
           <div style={{ padding:"12px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, marginBottom:14, fontSize:11, color:C.textDim }}>
-            時給 ¥{HOURLY.toLocaleString()}　/　ドリンクバック {Math.floor(DRINK_BACK_RATE*100)}%　/　A指名 ¥{NOM_A.toLocaleString()}　B指名 ¥{NOM_B.toLocaleString()}
+            時給 ¥{HOURLY.toLocaleString()}　/　ドリンク30%（¥2,000→¥500固定）　/　A指名 ¥{NOM_A.toLocaleString()}　B指名 ¥{NOM_B.toLocaleString()}
           </div>
           {castList.map(name=>{
             const s = calcSalary(name);
@@ -2304,7 +2318,7 @@ function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }
                     <span style={{ color:C.text }}>¥{s.baseSalary.toLocaleString()}</span>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between" }}>
-                    <span>🍹 ドリンクバック ({Math.floor(DRINK_BACK_RATE*100)}%)</span>
+                    <span>🍹 ドリンクバック</span>
                     <span style={{ color:C.text }}>¥{s.drinkBack.toLocaleString()}</span>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between" }}>
@@ -2325,23 +2339,34 @@ function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }
       {subTab === "salary" && detailCast && (()=>{
         // 月集計
         const [y,m] = currentBizDate.split("-");
-        let monthRevenue = 0, monthCups = 0;
+        let monthRevenue = 0, monthCups = 0, monthBack = 0;
         const dayList = [];
+        // 価格別バック計算（¥2,000→¥500固定、その他→30%）
+        const calcBack = (items) => {
+          let back = 0;
+          (items||[]).forEach(item=>{
+            const p = item.price||0;
+            const q = item.qty||1;
+            if(p === 2000) back += 500 * q;
+            else back += Math.floor(p * DRINK_BACK_RATE) * q;
+          });
+          return back;
+        };
         Object.entries(monthData).forEach(([date, rep])=>{
           const castRep = (rep.castReports||[]).find(c=>c.castName===detailCast);
           if(castRep) {
             monthRevenue += castRep.revenue||0;
             monthCups    += castRep.cups||0;
-            dayList.push({ date, revenue:castRep.revenue||0, cups:castRep.cups||0, items:castRep.items||[] });
+            monthBack    += calcBack(castRep.items);
+            dayList.push({ date, revenue:castRep.revenue||0, cups:castRep.cups||0, items:castRep.items||[], back:calcBack(castRep.items) });
           }
         });
         dayList.sort((a,b)=>b.date>a.date?1:-1);
-        const monthBack = Math.floor(monthRevenue * DRINK_BACK_RATE);
 
         // 選択日のデータ
         const dayRep = monthData[dayDetailDate];
         const dayCast = dayRep ? (dayRep.castReports||[]).find(c=>c.castName===detailCast) : null;
-        const dayBack = dayCast ? Math.floor((dayCast.revenue||0) * DRINK_BACK_RATE) : 0;
+        const dayBack = dayCast ? calcBack(dayCast.items) : 0;
 
         return (
           <div>
@@ -2363,7 +2388,7 @@ function Stats2Panel({ shopId, settings, todayReport, sessions, currentBizDate }
                 <span style={{ fontSize:14, fontWeight:800, color:C.text }}>{monthCups}杯</span>
               </div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:6, borderTop:`1px dashed ${C.border}` }}>
-                <span style={{ fontSize:12, color:C.textDim }}>🍹 月バック ({Math.floor(DRINK_BACK_RATE*100)}%)</span>
+                <span style={{ fontSize:12, color:C.textDim }}>🍹 月バック</span>
                 <span style={{ fontSize:16, fontWeight:900, color:C.pink }}>¥{monthBack.toLocaleString()}</span>
               </div>
             </div>
@@ -3051,6 +3076,8 @@ function DailyReportPanel({ shopId, onExit }) {
         )}
         {report && detail && dData && (()=>{
           const BACK_RATE = 0.3;
+          // 価格別バック単価：¥2,000 → ¥500固定、その他 → 30%
+          const backPerCup = (price) => price === 2000 ? 500 : Math.floor(price * BACK_RATE);
           const priceMap = {};
           (dData.items||[]).forEach(item=>{
             const p = item.price||0;
@@ -3059,7 +3086,7 @@ function DailyReportPanel({ shopId, onExit }) {
             priceMap[p].total += p*(item.qty||1);
           });
           const priceGroups = Object.values(priceMap).sort((a,b)=>a.price-b.price);
-          const totalBack = Math.floor((dData.revenue||0)*BACK_RATE);
+          const totalBack = priceGroups.reduce((sum,g)=>sum + backPerCup(g.price)*g.cups, 0);
           return (
             <>
               {/* ヘッダー */}
@@ -3073,15 +3100,17 @@ function DailyReportPanel({ shopId, onExit }) {
               {/* 合計バック */}
               <div style={{ padding:"16px 20px", background:"rgba(62,207,142,0.12)", border:`1px solid ${C.green}`, borderRadius:16, marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <div>
-                  <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック（30%）</div>
-                  <div style={{ fontSize:11, color:C.textDim }}>¥{(dData.revenue||0).toLocaleString()} × 30%</div>
+                  <div style={{ fontSize:12, color:C.green, fontWeight:700, marginBottom:2 }}>💰 合計バック</div>
+                  <div style={{ fontSize:11, color:C.textDim }}>¥2,000→¥500固定 / その他30%</div>
                 </div>
                 <div style={{ fontSize:26, fontWeight:900, color:C.green }}>¥{totalBack.toLocaleString()}</div>
               </div>
               {/* 価格別内訳 */}
               <div style={{ fontSize:12, color:C.textDim, fontWeight:700, marginBottom:10 }}>📊 価格別内訳</div>
               {priceGroups.map((g,i)=>{
-                const back = Math.floor(g.total*BACK_RATE);
+                const perCup = backPerCup(g.price);
+                const back = perCup * g.cups;
+                const isSpecial = g.price === 2000;
                 return (
                   <div key={i} style={{ padding:"14px 16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:8 }}>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
@@ -3094,7 +3123,7 @@ function DailyReportPanel({ shopId, onExit }) {
                         <div style={{ fontSize:15, fontWeight:900, color:C.gold }}>¥{g.total.toLocaleString()}</div>
                       </div>
                       <div style={{ flex:1, padding:"8px 12px", background:"rgba(62,207,142,0.1)", borderRadius:10, textAlign:"center" }}>
-                        <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>バック（30%）</div>
+                        <div style={{ fontSize:10, color:C.textDim, marginBottom:2 }}>{isSpecial?"バック（¥500固定）":"バック（30%）"}</div>
                         <div style={{ fontSize:15, fontWeight:900, color:C.green }}>¥{back.toLocaleString()}</div>
                       </div>
                     </div>
